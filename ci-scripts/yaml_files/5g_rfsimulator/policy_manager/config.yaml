@@ -1,0 +1,77 @@
+policy_manager:
+  poll_interval_seconds: 5
+  decision_cooldown_seconds: 10
+  dry_run_only: true
+  telemetry_glob: closed_loop_telemetry_*.jsonl
+  telemetry_dir: ../logs/telemetry
+  log_dir: ../logs/policy
+  log_prefix: closed_loop_policy
+  ensure_onos_slice_flows: true
+  force_onos_flow_refresh: false
+  onos:
+    base_url: http://192.168.71.160:8181
+    devices_path: /onos/v1/devices
+    username: onos
+    password: rocks
+    timeout_seconds: 5
+    upf_port_name: v-upf-host
+    edn_port_name: v-edn-host
+  ovs:
+    container_name: ovs
+    bridge_name: br-n6
+    egress_port_name: v-edn-host
+  queue_profiles:
+    baseline:
+      parent_max_rate_bps: 120000000
+      queues:
+        "1":
+          min_rate_bps: 50000000
+          max_rate_bps: 100000000
+        "2":
+          min_rate_bps: 10000000
+          max_rate_bps: 20000000
+        "3":
+          min_rate_bps: 1000000
+          max_rate_bps: 5000000
+    overlays:
+      INCREASE_URLLC_PROTECTION:
+        queues:
+          "2":
+            min_rate_bps: 20000000
+            max_rate_bps: 40000000
+      INCREASE_EMBB_BANDWIDTH_SHARE:
+        queues:
+          "1":
+            min_rate_bps: 70000000
+            max_rate_bps: 110000000
+      INCREASE_MMTC_RESERVED_RATE:
+        queues:
+          "3":
+            min_rate_bps: 5000000
+            max_rate_bps: 10000000
+  slices:
+    embb:
+      display_name: eMBB
+      udp_port: 5201
+      queue_id: 1
+      action_name: INCREASE_EMBB_BANDWIDTH_SHARE
+      sla:
+        min_throughput_bps: 60000000
+        min_queue_bytes_per_second: 1000000
+    urllc:
+      display_name: URLLC
+      udp_port: 5202
+      queue_id: 2
+      action_name: INCREASE_URLLC_PROTECTION
+      sla:
+        max_latency_ms: 20
+        max_jitter_ms: 5
+        max_loss_percent: 1
+    mmtc:
+      display_name: mMTC
+      udp_port: 5203
+      queue_id: 3
+      action_name: INCREASE_MMTC_RESERVED_RATE
+      sla:
+        min_delivery_ratio_percent: 98
+        max_loss_percent: 2

@@ -1,0 +1,19 @@
+ue:
+  uicc0:
+    imsi: "208990100001300"
+    key: "8baf473f2f8fd09487cccbd7097c6862"
+    opc: "63c374dfc99f5aee3f0f2c2a7d48bc0"
+    dnn: "mmtc"
+    slice:
+      sst: 3
+      sd: "334455"
+  position:
+    lat: 0.0
+    lon: 0.0
+    alt: 0.0
+PduSessions:
+  - apn: "mmtc"
+    slice:
+      sst: 3
+      sd: "334455"
+    type: "IPv4"

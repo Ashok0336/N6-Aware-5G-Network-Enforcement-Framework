@@ -1,0 +1,145 @@
+{
+  "service_mapping_path": "./service_mapping.yaml",
+  "default_policy_action": "MAINTAIN_CURRENT_POLICY",
+  "restore_policy_action": "RESTORE_DEFAULT_POLICY",
+  "service_classes": {
+    "real_time_control": {
+      "queue_id": 2,
+      "default_action": "MAINTAIN_CURRENT_POLICY",
+      "live_action": "INCREASE_CONTROL_PRIORITY",
+      "traffic_udp_port": 5202,
+      "ue_container_names": [
+        "rfsim5g-oai-nr-ue",
+        "rfsim5g-oai-nr-ue2"
+      ],
+      "queue_profile_name": "queue_2_protected"
+    },
+    "high_throughput_data": {
+      "queue_id": 1,
+      "default_action": "MAINTAIN_CURRENT_POLICY",
+      "live_action": "TIGHTEN_DATA_SHAPING",
+      "traffic_udp_port": 5201,
+      "ue_container_names": [
+        "rfsim5g-oai-nr-ue3",
+        "rfsim5g-oai-nr-ue4",
+        "rfsim5g-oai-nr-ue5",
+        "rfsim5g-oai-nr-ue6"
+      ],
+      "queue_profile_name": "queue_1_shaped"
+    },
+    "sensor_telemetry": {
+      "queue_id": 3,
+      "default_action": "MAINTAIN_CURRENT_POLICY",
+      "live_action": "PROTECT_SENSOR_MIN_BW",
+      "traffic_udp_port": 5203,
+      "ue_container_names": [
+        "rfsim5g-oai-nr-ue7",
+        "rfsim5g-oai-nr-ue8",
+        "rfsim5g-oai-nr-ue9",
+        "rfsim5g-oai-nr-ue10"
+      ],
+      "queue_profile_name": "queue_3_protected"
+    }
+  },
+  "enforcement": {
+    "policy_log_dir": "../logs/policy",
+    "policy_log_glob": "policy_decisions_*.jsonl",
+    "log_dir": "../logs/enforcement",
+    "polling_interval_seconds": 2,
+    "cooldown_seconds": 10,
+    "dry_run": true,
+    "bootstrap_from_existing_policy_logs": true,
+    "ensure_onos_slice_flows": true,
+    "force_onos_flow_refresh": false,
+    "read_current_ovs_profile_on_startup": true,
+    "action_to_queue_profile": {
+      "MAINTAIN_CURRENT_POLICY": "baseline",
+      "INCREASE_CONTROL_PRIORITY": "queue_2_protected",
+      "TIGHTEN_DATA_SHAPING": "queue_1_shaped",
+      "PROTECT_SENSOR_MIN_BW": "queue_3_protected",
+      "RESTORE_DEFAULT_POLICY": "baseline"
+    },
+    "onos": {
+      "base_url": "http://192.168.71.160:8181",
+      "devices_path": "/onos/v1/devices",
+      "username": "onos",
+      "password": "rocks",
+      "timeout_seconds": 5,
+      "upf_port_name": "v-upf-host",
+      "edn_port_name": "v-edn-host",
+      "slice_flow_rules": [
+        {
+          "name": "embb",
+          "udp_port": 5201,
+          "queue_id": 1,
+          "priority": 40000
+        },
+        {
+          "name": "urllc",
+          "udp_port": 5202,
+          "queue_id": 2,
+          "priority": 50000
+        },
+        {
+          "name": "mmtc",
+          "udp_port": 5203,
+          "queue_id": 3,
+          "priority": 30000
+        }
+      ],
+      "base_forward_flow_priority": 5000,
+      "reverse_flow_priority": 20000,
+      "arp_flow_priority": 45000
+    },
+    "ovs": {
+      "container_name": "ovs",
+      "bridge_name": "br-n6",
+      "egress_port_name": "v-edn-host"
+    },
+    "queue_profiles": {
+      "baseline": {
+        "parent_max_rate_bps": 120000000,
+        "queues": {
+          "1": {
+            "min_rate_bps": 50000000,
+            "max_rate_bps": 100000000
+          },
+          "2": {
+            "min_rate_bps": 10000000,
+            "max_rate_bps": 20000000
+          },
+          "3": {
+            "min_rate_bps": 1000000,
+            "max_rate_bps": 5000000
+          }
+        }
+      },
+      "action_overlays": {
+        "INCREASE_CONTROL_PRIORITY": {
+          "queues": {
+            "2": {
+              "min_rate_bps": 20000000,
+              "max_rate_bps": 40000000
+            }
+          }
+        },
+        "TIGHTEN_DATA_SHAPING": {
+          "queues": {
+            "1": {
+              "min_rate_bps": 30000000,
+              "max_rate_bps": 60000000
+            }
+          }
+        },
+        "PROTECT_SENSOR_MIN_BW": {
+          "queues": {
+            "3": {
+              "min_rate_bps": 5000000,
+              "max_rate_bps": 10000000
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,130 @@
+################################################################################
+# (trimmed header)
+################################################################################
+
+log_level: { general: debug }
+register_nf: { general: no }
+http_version: 1
+
+nfs:
+  amf:
+    host: oai-amf
+    sbi: { port: 80, api_version: v1, interface_name: eth0 }
+    n2:  { interface_name: eth0, port: 38412 }
+  smf:
+    host: oai-smf
+    sbi: { port: 80, api_version: v1, interface_name: eth0 }
+    n4:  { interface_name: eth0, port: 8805 }
+  upf:
+    host: oai-upf
+    sbi: { port: 80, api_version: v1, interface_name: eth0 }
+    n3:  { interface_name: eth0, port: 2152 }
+    n4:  { interface_name: eth0, port: 8805 }
+    n6:  { interface_name: eth1 }
+    n9:  { interface_name: eth0, port: 2152 }
+
+database:
+  host: mysql
+  user: test
+  type: mysql
+  password: test
+  database_name: oai_db
+  generate_random: true
+  connection_timeout: 300
+
+## YAML anchors (your original)
+snssais:
+  - &embb_slice1 { sst: 1 }
+  - &urllc_slice { sst: 2, sd: "112233" }
+  - &mmtc_slice  { sst: 3, sd: "334455" }
+
+#################### AMF ####################
+amf:
+  amf_name: "OAI-AMF"
+  support_features_options:
+    enable_simple_scenario: yes
+    enable_nssf: no
+    enable_smf_selection: no
+  relative_capacity: 30
+  statistics_timer_interval: 20
+  emergency_support: false
+  served_guami_list:
+    - { mcc: 208, mnc: 99, amf_region_id: 01, amf_set_id: 001, amf_pointer: 01 }
+  plmn_support_list:
+    - mcc: 208
+      mnc: 99
+      tac: 0x0001
+      nssai:
+        - *embb_slice1
+        - *urllc_slice
+        - *mmtc_slice
+  supported_integrity_algorithms: ["NIA0","NIA1","NIA2"]
+  supported_encryption_algorithms: ["NEA0","NEA1","NEA2"]
+
+#################### SMF ####################
+smf:
+  ue_mtu: 1500
+  support_features:
+    use_local_subscription_info: yes
+    use_local_pcc_rules: yes
+
+  # UPF info + DNN→N6 mapping
+  upfs:
+    - host: oai-upf
+      port: 8805
+      upf_info:
+        interfaceUpfInfoList:
+          - { interfaceType: "N3", networkInstance: "access.oai.org" }
+          - { interfaceType: "N6", networkInstance: "core.oai.org" }
+      dnn_list:
+        - { dnn: "oai",   n6: 192.168.72.150 }
+        - { dnn: "urllc", n6: 192.168.72.150 }
+        - { dnn: "mmtc",  n6: 192.168.72.150 }
+
+  ue_dns:
+    primary_ipv4:  "172.21.3.100"
+    secondary_ipv4:"8.8.8.8"
+    primary_ipv6:  "2001:4860:4860::8888"
+    secondary_ipv6:"2001:4860:4860::8888"
+
+  # Advertise DNNs per S-NSSAI to AMF/NRF (mini mode)
+  smf_info:
+    sNssaiSmfInfoList:
+      - sNssai: *embb_slice1
+        dnnSmfInfoList: [ { dnn: "oai" } ]
+      - sNssai: *urllc_slice
+        dnnSmfInfoList: [ { dnn: "urllc" } ]
+      - sNssai: *mmtc_slice
+        dnnSmfInfoList: [ { dnn: "mmtc" } ]
+
+  # Local subs: 5QI/AMBR per slice (yours looked good)
+  local_subscription_infos:
+    - single_nssai: *embb_slice1
+      dnn: "oai"
+      qos_profile: { 5qi: 9, session_ambr_ul: "200Mbps", session_ambr_dl: "400Mbps" }
+    - single_nssai: *urllc_slice
+      dnn: "urllc"
+      qos_profile: { 5qi: 1, session_ambr_ul: "100Mbps", session_ambr_dl: "100Mbps" }
+    - single_nssai: *mmtc_slice
+      dnn: "mmtc"
+      qos_profile: { 5qi: 6, session_ambr_ul: "5Mbps", session_ambr_dl: "10Mbps" }
+
+#################### UPF ####################
+# *** This is the key piece you were missing: per-DNN UE IP pools ***
+upf:
+  enable_pfcp: yes
+  threads: 4
+  n3: { ip_v4: 192.168.71.134, ifname: eth0 }
+  n4: { ip_v4: 192.168.71.134, ifname: eth0 }
+  n6: { ip_v4: 192.168.72.134, ifname: eth1 }
+
+  dnn_list:
+    - dnn: oai
+      pdu_session_type: IPv4
+      ipv4_pool: 12.1.1.0/24
+    - dnn: urllc
+      pdu_session_type: IPv4
+      ipv4_pool: 12.2.1.0/24
+    - dnn: mmtc
+      pdu_session_type: IPv4
+      ipv4_pool: 12.3.1.0/24

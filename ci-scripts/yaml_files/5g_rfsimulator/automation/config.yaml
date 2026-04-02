@@ -1,0 +1,177 @@
+{
+  "service_mapping_path": "./service_mapping.yaml",
+  "polling_interval_seconds": 2,
+  "command_timeout_seconds": 5,
+  "ovs_container_name": "ovs",
+  "ovs_bridge_name": "br-n6",
+  "monitored_ports": [
+    "v-upf-host",
+    "v-edn-host"
+  ],
+  "monitored_interfaces": [
+    "v-upf-host",
+    "v-edn-host"
+  ],
+  "log_dir": "../logs/telemetry",
+  "optional_container_names": [
+    "ovs",
+    "onos",
+    "rfsim5g-oai-upf",
+    "rfsim5g-oai-ext-dn",
+    "rfsim5g-oai-nr-ue",
+    "rfsim5g-oai-nr-ue2",
+    "rfsim5g-oai-nr-ue3",
+    "rfsim5g-oai-nr-ue4",
+    "rfsim5g-oai-nr-ue5",
+    "rfsim5g-oai-nr-ue6",
+    "rfsim5g-oai-nr-ue7",
+    "rfsim5g-oai-nr-ue8",
+    "rfsim5g-oai-nr-ue9",
+    "rfsim5g-oai-nr-ue10"
+  ],
+  "onos_base_url": "http://192.168.71.160:8181/onos/v1/devices",
+  "onos_username": "onos",
+  "onos_password": "rocks",
+  "onos_timeout_seconds": 3,
+  "traffic_log_search_dirs": [
+    "../logs",
+    "../logs/traffic",
+    "../logs/experiments"
+  ],
+  "traffic_log_globs": [
+    "*.json",
+    "*.log"
+  ],
+  "service_classes": {
+    "real_time_control": {
+      "udp_port": 5202,
+      "queue_ids": [
+        "2"
+      ],
+      "interface_names": [
+        "v-edn-host"
+      ],
+      "container_names": [
+        "rfsim5g-oai-nr-ue",
+        "rfsim5g-oai-nr-ue2"
+      ],
+      "log_search_dirs": [
+        "../logs",
+        "../logs/traffic",
+        "../logs/experiments"
+      ],
+      "log_file_names": [
+        "control_ue1.log",
+        "control_ue2.log",
+        "control_ue1_udp.log",
+        "control_ue2_udp.log"
+      ],
+      "ping_log_names": [
+        "control_ue1.log",
+        "control_ue2.log"
+      ],
+      "udp_sender_log_names": [
+        "control_ue1_udp.log",
+        "control_ue2_udp.log"
+      ],
+      "ping_log_keywords": [
+        "real_time_control",
+        "control"
+      ],
+      "iperf_log_keywords": [
+        "real_time_control",
+        "control"
+      ],
+      "udp_sender_log_keywords": [
+        "real_time_control",
+        "control"
+      ]
+    },
+    "high_throughput_data": {
+      "udp_port": 5201,
+      "queue_ids": [
+        "1"
+      ],
+      "interface_names": [
+        "v-edn-host"
+      ],
+      "container_names": [
+        "rfsim5g-oai-nr-ue3",
+        "rfsim5g-oai-nr-ue4",
+        "rfsim5g-oai-nr-ue5",
+        "rfsim5g-oai-nr-ue6"
+      ],
+      "log_search_dirs": [
+        "../logs",
+        "../logs/traffic",
+        "../logs/experiments"
+      ],
+      "log_file_names": [
+        "data_ue3.log",
+        "data_ue4.log",
+        "data_ue5.log",
+        "data_ue6.log"
+      ],
+      "udp_sender_log_names": [
+        "data_ue3.log",
+        "data_ue4.log",
+        "data_ue5.log",
+        "data_ue6.log"
+      ],
+      "ping_log_keywords": [
+        "data"
+      ],
+      "iperf_log_keywords": [
+        "high_throughput_data",
+        "data"
+      ],
+      "udp_sender_log_keywords": [
+        "high_throughput_data",
+        "data"
+      ]
+    },
+    "sensor_telemetry": {
+      "udp_port": 5203,
+      "queue_ids": [
+        "3"
+      ],
+      "interface_names": [
+        "v-edn-host"
+      ],
+      "container_names": [
+        "rfsim5g-oai-nr-ue7",
+        "rfsim5g-oai-nr-ue8",
+        "rfsim5g-oai-nr-ue9",
+        "rfsim5g-oai-nr-ue10"
+      ],
+      "log_search_dirs": [
+        "../logs",
+        "../logs/traffic",
+        "../logs/experiments"
+      ],
+      "log_file_names": [
+        "sensor_ue7.log",
+        "sensor_ue8.log",
+        "sensor_ue9.log",
+        "sensor_ue10.log"
+      ],
+      "udp_sender_log_names": [
+        "sensor_ue7.log",
+        "sensor_ue8.log",
+        "sensor_ue9.log",
+        "sensor_ue10.log"
+      ],
+      "ping_log_keywords": [
+        "sensor"
+      ],
+      "iperf_log_keywords": [
+        "sensor_telemetry",
+        "sensor"
+      ],
+      "udp_sender_log_keywords": [
+        "sensor_telemetry",
+        "sensor"
+      ]
+    }
+  }
+}

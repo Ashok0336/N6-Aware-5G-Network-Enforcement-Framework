@@ -1,0 +1,96 @@
+telemetry:
+  poll_interval_seconds: 5
+  command_timeout_seconds: 8
+  output_dir: ../logs/telemetry
+  file_prefix: closed_loop_telemetry
+  latest_snapshot_path: ../logs/telemetry/closed_loop_latest.json
+  onos:
+    base_url: http://192.168.71.160:8181
+    devices_path: /onos/v1/devices
+    username: onos
+    password: rocks
+    timeout_seconds: 5
+  ovs:
+    container_name: ovs
+    bridge_name: br-n6
+    upf_port_name: v-upf-host
+    egress_port_name: v-edn-host
+  docker:
+    containers:
+      - ovs
+      - onos
+      - rfsim5g-oai-upf
+      - rfsim5g-oai-ext-dn
+      - rfsim5g-oai-gnb
+      - rfsim5g-oai-nr-ue
+      - rfsim5g-oai-nr-ue2
+      - rfsim5g-oai-nr-ue3
+      - rfsim5g-oai-nr-ue4
+      - rfsim5g-oai-nr-ue5
+      - rfsim5g-oai-nr-ue6
+      - rfsim5g-oai-nr-ue7
+      - rfsim5g-oai-nr-ue8
+      - rfsim5g-oai-nr-ue9
+      - rfsim5g-oai-nr-ue10
+  ping:
+    probes:
+      - name: urllc_n6_probe
+        slice_name: urllc
+        container_name: rfsim5g-oai-ext-dn
+        interface_name: dn0
+        target_ip: 192.168.72.134
+        count: 3
+        timeout_seconds: 1
+  iperf:
+    log_search_dirs:
+      - ../automation
+      - ../logs
+      - ../logs/traffic
+      - ../logs/experiments
+    file_globs:
+      - "*.log"
+      - "*.json"
+      - "*.jsonl"
+  slices:
+    embb:
+      display_name: eMBB
+      udp_port: 5201
+      queue_id: 1
+      payload_bytes: 1200
+      keywords:
+        - embb
+        - data
+        - 5201
+      file_names:
+        - data_ue3.log
+        - data_ue4.log
+        - data_ue5.log
+        - data_ue6.log
+    urllc:
+      display_name: URLLC
+      udp_port: 5202
+      queue_id: 2
+      payload_bytes: 128
+      keywords:
+        - urllc
+        - control
+        - 5202
+      file_names:
+        - control_ue1.log
+        - control_ue2.log
+        - control_ue1_udp.log
+        - control_ue2_udp.log
+    mmtc:
+      display_name: mMTC
+      udp_port: 5203
+      queue_id: 3
+      payload_bytes: 256
+      keywords:
+        - mmtc
+        - sensor
+        - 5203
+      file_names:
+        - sensor_ue7.log
+        - sensor_ue8.log
+        - sensor_ue9.log
+        - sensor_ue10.log

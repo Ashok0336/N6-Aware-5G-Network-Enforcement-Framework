@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.oai</groupId>
+  <artifactId>onos-slice-queue-app</artifactId>
+  <version>1.0.0</version>
+  <packaging>bundle</packaging>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <onos.version>3.0.0-SNAPSHOT</onos.version>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>project-local-onos</id>
+      <url>file://${project.basedir}/local-maven-repo</url>
+    </repository>
+    <repository>
+      <id>maven-central</id>
+      <url>https://repo1.maven.org/maven2</url>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <id>maven-central</id>
+      <url>https://repo1.maven.org/maven2</url>
+    </pluginRepository>
+  </pluginRepositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.onosproject</groupId>
+      <artifactId>onos-api</artifactId>
+      <version>${onos.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.onosproject</groupId>
+      <artifactId>onlab-osgi</artifactId>
+      <version>${onos.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.onosproject</groupId>
+      <artifactId>onlab-misc</artifactId>
+      <version>${onos.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.service.component.annotations</artifactId>
+      <version>1.4.0</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-clean-plugin</artifactId>
+        <version>3.2.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.5.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.5</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>5.1.9</version>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Bundle-SymbolicName>org.oai.slicequeue</Bundle-SymbolicName>
+            <Bundle-Name>ONOS Slice Queue App</Bundle-Name>
+            <Bundle-Version>1.0.0</Bundle-Version>
+            <Export-Package>org.oai.slicequeue</Export-Package>
+            <Private-Package>org.oai.slicequeue.*</Private-Package>
+            <Import-Package>
+              !java.*,
+              org.onlab.packet;version="[3.0,4)",
+              org.onosproject.core;version="[3.0,4)",
+              org.onosproject.net;version="[3.0,4)",
+              org.onosproject.net.device;version="[3.0,4)",
+              org.onosproject.net.flow;version="[3.0,4)",
+              org.osgi.service.component.annotations;resolution:=optional,
+              *
+            </Import-Package>
+            <_noimportjava>true</_noimportjava>
+            <Service-Component>OSGI-INF/*.xml</Service-Component>
+          </instructions>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

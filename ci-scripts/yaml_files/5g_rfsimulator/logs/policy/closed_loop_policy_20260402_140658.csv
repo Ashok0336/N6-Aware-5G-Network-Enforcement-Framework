@@ -1,0 +1,2 @@
+timestamp,dry_run_only,embb_action,urllc_action,mmtc_action,active_actions,applied,enforcement_mode,reason_summary,telemetry_file
+2026-04-02T20:06:58.366Z,True,MAINTAIN_CURRENT_POLICY,MAINTAIN_CURRENT_POLICY,MAINTAIN_CURRENT_POLICY,,False,dry-run,URLLC: URLLC telemetry is within SLA. | eMBB: eMBB throughput is within SLA or URLLC has priority. | mMTC: mMTC telemetry is within SLA or delivery ratio is unavailable.,/home/ak/Desktop/openairinterfacE5G_J/ci-scripts/yaml_files/5g_rfsimulator/logs/telemetry/closed_loop_telemetry_20260402_140641.jsonl
