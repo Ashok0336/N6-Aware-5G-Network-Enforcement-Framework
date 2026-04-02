@@ -1,0 +1,157 @@
+{
+  "defaults": {
+    "ext_dn_container": "rfsim5g-oai-ext-dn",
+    "target_ip": "192.168.72.135",
+    "results_root_dir": "../logs/experiments",
+    "log_search_dirs": [
+      "../logs",
+      "../logs/traffic",
+      "../logs/experiments"
+    ]
+  },
+  "service_classes": {
+    "real_time_control": {
+      "service_class": "real_time_control",
+      "target_ip": "192.168.72.135",
+      "target_ports": [
+        5202
+      ],
+      "queue_id": 2,
+      "queue_profile_name": "queue_2_protected",
+      "log_file_names": [
+        "control_ue1.log",
+        "control_ue2.log",
+        "control_ue1_udp.log",
+        "control_ue2_udp.log"
+      ],
+      "ping_log_file_names": [
+        "control_ue1.log",
+        "control_ue2.log"
+      ],
+      "udp_sender_log_file_names": [
+        "control_ue1_udp.log",
+        "control_ue2_udp.log"
+      ],
+      "traffic_profile": {
+        "ping_interval_seconds": 1.0,
+        "udp_payload_bytes": 128,
+        "udp_packets_per_burst": 1,
+        "udp_burst_interval_seconds": 0.1
+      },
+      "ue_bindings": [
+        {
+          "container_name": "rfsim5g-oai-nr-ue",
+          "ue_label": "ue1",
+          "log_file_name": "control_ue1.log",
+          "auxiliary_log_file_names": [
+            "control_ue1_udp.log"
+          ]
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue2",
+          "ue_label": "ue2",
+          "log_file_name": "control_ue2.log",
+          "auxiliary_log_file_names": [
+            "control_ue2_udp.log"
+          ]
+        }
+      ]
+    },
+    "high_throughput_data": {
+      "service_class": "high_throughput_data",
+      "target_ip": "192.168.72.135",
+      "target_ports": [
+        5201
+      ],
+      "queue_id": 1,
+      "queue_profile_name": "queue_1_shaped",
+      "log_file_names": [
+        "data_ue3.log",
+        "data_ue4.log",
+        "data_ue5.log",
+        "data_ue6.log"
+      ],
+      "udp_sender_log_file_names": [
+        "data_ue3.log",
+        "data_ue4.log",
+        "data_ue5.log",
+        "data_ue6.log"
+      ],
+      "traffic_profile": {
+        "udp_payload_bytes": 1200,
+        "udp_packets_per_burst": 21,
+        "udp_burst_interval_seconds": 0.01
+      },
+      "ue_bindings": [
+        {
+          "container_name": "rfsim5g-oai-nr-ue3",
+          "ue_label": "ue3",
+          "log_file_name": "data_ue3.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue4",
+          "ue_label": "ue4",
+          "log_file_name": "data_ue4.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue5",
+          "ue_label": "ue5",
+          "log_file_name": "data_ue5.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue6",
+          "ue_label": "ue6",
+          "log_file_name": "data_ue6.log"
+        }
+      ]
+    },
+    "sensor_telemetry": {
+      "service_class": "sensor_telemetry",
+      "target_ip": "192.168.72.135",
+      "target_ports": [
+        5203
+      ],
+      "queue_id": 3,
+      "queue_profile_name": "queue_3_protected",
+      "log_file_names": [
+        "sensor_ue7.log",
+        "sensor_ue8.log",
+        "sensor_ue9.log",
+        "sensor_ue10.log"
+      ],
+      "udp_sender_log_file_names": [
+        "sensor_ue7.log",
+        "sensor_ue8.log",
+        "sensor_ue9.log",
+        "sensor_ue10.log"
+      ],
+      "traffic_profile": {
+        "udp_payload_bytes": 256,
+        "udp_packets_per_burst": 1,
+        "udp_burst_interval_seconds": 0.5
+      },
+      "ue_bindings": [
+        {
+          "container_name": "rfsim5g-oai-nr-ue7",
+          "ue_label": "ue7",
+          "log_file_name": "sensor_ue7.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue8",
+          "ue_label": "ue8",
+          "log_file_name": "sensor_ue8.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue9",
+          "ue_label": "ue9",
+          "log_file_name": "sensor_ue9.log"
+        },
+        {
+          "container_name": "rfsim5g-oai-nr-ue10",
+          "ue_label": "ue10",
+          "log_file_name": "sensor_ue10.log"
+        }
+      ]
+    }
+  }
+}

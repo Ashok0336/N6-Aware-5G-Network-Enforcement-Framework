@@ -1,0 +1,7 @@
+ue:
+  supi: "imsi-208950000000002"
+  key:  "465B5CE8B199B49FAA5F0A2EE238A6BC"
+  opc:  "E8ED289DEBA952E4283B54E88E6183CA"
+  amf:  "8000"
+  dnn:  "urllc"
+  snssai: { sst: 2, sd: "112233" }

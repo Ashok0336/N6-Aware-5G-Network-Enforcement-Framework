@@ -1,0 +1,482 @@
+# Authoritative deployment definition for the OAI + OVS + ONOS N6 slicing testbed.
+# Use it explicitly with:
+#   docker compose -f docker-compose.yaml --env-file .env ...
+# Developer-only overrides live under ./overrides/ and are opt-in only.
+services:
+    mysql:
+        container_name: "rfsim5g-mysql"
+        image: mysql:8.0
+        init: true
+        volumes:
+            - ./oai_db.sql:/docker-entrypoint-initdb.d/oai_db.sql
+            - ./mysql-healthcheck.sh:/tmp/mysql-healthcheck.sh
+        environment:
+            - TZ=Europe/Paris
+            - MYSQL_DATABASE=oai_db
+            - MYSQL_USER=test
+            - MYSQL_PASSWORD=test
+            - MYSQL_ROOT_PASSWORD=linux
+        healthcheck:
+            test: ["CMD", "/tmp/mysql-healthcheck.sh"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.131
+    oai-amf:
+        container_name: "rfsim5g-oai-amf"
+        image: oaisoftwarealliance/oai-amf:v2.1.9
+        environment:
+            - TZ=Europe/Paris
+        volumes:
+            - ./mini_nonrf_config.yaml:/openair-amf/etc/config.yaml
+        depends_on:
+            - mysql
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.132
+    oai-smf:
+        container_name: "rfsim5g-oai-smf"
+        image: oaisoftwarealliance/oai-smf:v2.1.9
+        environment:
+            - TZ=Europe/Paris
+        volumes:
+            - ./mini_nonrf_config.yaml:/openair-smf/etc/config.yaml
+        depends_on:
+            - oai-amf
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.133
+    oai-upf:
+        container_name: "rfsim5g-oai-upf"
+        image: oaisoftwarealliance/oai-upf:v2.1.9
+        init: true
+        environment:
+            - TZ=Europe/Paris
+            - UPF_N6_IF=${UPF_N6_IF:-n6ovs0}
+            - UPF_WAIT_TIMEOUT_SECONDS=${UPF_WAIT_TIMEOUT_SECONDS:-120}
+            - UPF_CONFIG_PATH=/openair-upf/etc/config.yaml
+        volumes:
+            - ./mini_nonrf_config.yaml:/openair-upf/etc/config.yaml
+            - ./upf-entrypoint.sh:/upf-entrypoint.sh:ro
+        depends_on:
+            - oai-smf
+        cap_add:
+            - NET_ADMIN
+            - SYS_ADMIN
+        cap_drop:
+            - ALL
+        privileged: true
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.134
+                interface_name: eth0
+        entrypoint: ["/bin/bash", "/upf-entrypoint.sh"]
+
+    # ext-DN stays on public_net only; OVS injects the N6-side interface as dn0.
+    oai-ext-dn:
+        privileged: true
+        container_name: rfsim5g-oai-ext-dn
+        image: oaisoftwarealliance/trf-gen-cn5g:focal
+        init: true
+        environment:
+            - PUBLIC_IF=eth0
+            - EXT_DN_IF=${EXT_DN_IF:-dn0}
+            - UPF_N6_GW=${UPF_N6_GW:-192.168.72.134}
+            - EXT_DN_WAIT_TIMEOUT_SECONDS=${EXT_DN_WAIT_TIMEOUT_SECONDS:-120}
+            - EXT_DN_WAIT_LOG_INTERVAL_SECONDS=${EXT_DN_WAIT_LOG_INTERVAL_SECONDS:-5}
+            - EXT_DN_ROUTE_LIST=${EXT_DN_ROUTE_LIST:-12.1.1.0/24,12.1.2.0/24,12.1.3.0/24}
+            - EXT_DN_STARTUP_PROBE_ENABLED=${EXT_DN_STARTUP_PROBE_ENABLED:-true}
+            - EXT_DN_STARTUP_PROBE_TARGET=${EXT_DN_STARTUP_PROBE_TARGET:-192.168.72.134}
+            - EXT_DN_STARTUP_PROBE_COUNT=${EXT_DN_STARTUP_PROBE_COUNT:-1}
+            - EXT_DN_STARTUP_PROBE_TIMEOUT_SECONDS=${EXT_DN_STARTUP_PROBE_TIMEOUT_SECONDS:-1}
+        entrypoint: ["/bin/bash", "/ext-dn-entrypoint.sh"]
+        depends_on:
+            - oai-upf
+        volumes:
+            - ./ext-dn-entrypoint.sh:/ext-dn-entrypoint.sh:ro
+            - ./ext-dn-healthcheck.sh:/ext-dn-healthcheck.sh:ro
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.135
+        healthcheck:
+            test: ["CMD", "/ext-dn-healthcheck.sh"]
+            start_period: 150s
+            start_interval: 1s
+            interval: 10s
+            timeout: 5s
+            retries: 12
+    oai-gnb:
+        image: ${REGISTRY:-oaisoftwarealliance}/${GNB_IMG:-oai-gnb}:${TAG:-develop}
+        container_name: rfsim5g-oai-gnb
+        cap_add:
+            - SYS_NICE
+        cap_drop:
+            - ALL
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0
+        depends_on:
+            oai-ext-dn:
+                condition: service_started
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.140
+        volumes:
+            - ../../conf_files/gnb.sa.band78.106prb.rfsim.yaml:/opt/oai-gnb/etc/gnb.yaml
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-softmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001100 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.150
+        dns:
+            - 8.8.8.8
+            - 1.1.1.1        
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.yaml:/opt/oai-nr-ue/etc/nr-ue.yaml
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue2:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue2
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001101 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.151
+        dns:
+            - 8.8.8.8
+            - 1.1.1.1          
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.yaml:/opt/oai-nr-ue/etc/nr-ue.yaml
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue3:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue3
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001102 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.152
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.yaml:/opt/oai-nr-ue/etc/nr-ue.yaml
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue4:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue4
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001103 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.153
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue5:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue5
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001104 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.154
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue6:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue6
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001105 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.155
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue7:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue7
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001106 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.156
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue8:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue8
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001107 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.157
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue9:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue9
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001108 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.158
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue10:
+        image: ${REGISTRY:-oaisoftwarealliance}/${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue10
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE
+        environment:
+            USE_ADDITIONAL_OPTIONS: -E --rfsim -r 106 --numerology 1 --uicc0.imsi 208990100001109 -C 3319680000 --rfsimulator.serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.159
+        devices:
+             - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            start_period: 10s
+            start_interval: 500ms
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    # Canonical ONOS controller and REST endpoint for the authoritative testbed.
+    onos:
+        container_name: onos
+        image: onosproject/onos
+        restart: always
+        ports:
+            - "${ONOS_REST_PORT:-8181}:8181"   # Web GUI & REST API
+            - "8101:8101"   # CLI over SSH
+            - "${ONOS_OF_PORT:-6653}:6653"   # OpenFlow (new)
+            - "6633:6633"   # OpenFlow (legacy)
+        environment:
+            - ONOS_APPS=gui2,openflow
+        networks:
+            public_net:
+                ipv4_address: ${ONOS_HOST:-192.168.71.160}
+    # OVS reconciles br-n6 plus dn0/n6ovs0 and connects to ONOS over OpenFlow 1.3.
+    ovs:
+        build: ./ovs
+        image: custom-ovs:noble
+        container_name: ovs
+        privileged: true
+        pid: host
+        restart: unless-stopped
+        depends_on:
+           - oai-upf
+           - oai-ext-dn
+           - onos
+        environment:
+          UPF_CONT: "${UPF_CONTAINER_NAME:-rfsim5g-oai-upf}"
+          EDN_CONT: "${EXT_DN_CONTAINER_NAME:-rfsim5g-oai-ext-dn}"
+          UPF_N6_IF: "${UPF_N6_IF:-n6ovs0}"
+          EDN_IF: "${EXT_DN_IF:-dn0}"
+          UPF_N6_IP: "${UPF_N6_IP:-192.168.72.134/26}"
+          EDN_IP: "${EXT_DN_N6_IP:-192.168.72.135/26}"
+          BR: "${OVS_BRIDGE_NAME:-br-n6}"
+          V_UPF_HOST: "${OVS_UPF_PORT_NAME:-v-upf-host}"
+          V_EDN_HOST: "${OVS_EDN_PORT_NAME:-v-edn-host}"
+          ONOS_CTRL: "${ONOS_CTRL:-192.168.71.160:6653}"
+          ONOS_BASE_URL: "${ONOS_BASE_URL:-http://192.168.71.160:8181}"
+          ONOS_AUTH: "${ONOS_AUTH:-onos:rocks}"
+          OVS_HOST: "${OVS_HOST:-192.168.71.161}"
+          ONOS_CTRL_TIMEOUT_SECONDS: "${ONOS_CTRL_TIMEOUT_SECONDS:-30}"
+          OVS_RECONCILE_INTERVAL_SECONDS: "${OVS_RECONCILE_INTERVAL_SECONDS:-5}"
+          N6_ARP_FORWARD_PRIORITY: "${N6_ARP_FORWARD_PRIORITY:-45000}"
+          N6_BASE_FORWARD_PRIORITY: "${N6_BASE_FORWARD_PRIORITY:-5000}"
+        volumes:
+            - ./ovs-init.sh:/ovs-init.sh:ro
+            - ./ovs-start.sh:/ovs-start.sh:ro
+            - ./onos-bootstrap-forwarding.py:/onos-bootstrap-forwarding.py:ro
+            - ./ovs-healthcheck.sh:/ovs-healthcheck.sh:ro
+            - /var/run/docker.sock:/var/run/docker.sock
+        command: ["/bin/bash", "/ovs-start.sh"]
+        networks:
+            public_net:
+                ipv4_address: ${OVS_HOST:-192.168.71.161}
+        healthcheck:
+            test: ["CMD", "/ovs-healthcheck.sh"]
+            start_period: 90s
+            start_interval: 1s
+            interval: 10s
+            timeout: 5s
+            retries: 12
+
+networks:
+    public_net:
+        driver: bridge
+        name: rfsim5g-oai-public-net
+        ipam:
+            config:
+                - subnet: 192.168.71.128/26
+        driver_opts:
+            com.docker.network.bridge.name: "rfsim5g-public"

@@ -1,0 +1,55 @@
+{
+  "polling_interval_seconds": 2,
+  "telemetry_dir": "../logs/telemetry",
+  "telemetry_glob": "telemetry_*.jsonl",
+  "log_dir": "../logs/policy",
+  "decision_cooldown_seconds": 10,
+  "emit_unchanged_decisions": true,
+  "unchanged_decision_log_interval_seconds": 30,
+  "default_policy_action": "MAINTAIN_CURRENT_POLICY",
+  "restore_policy_action": "RESTORE_DEFAULT_POLICY",
+  "service_classes": {
+    "real_time_control": {
+      "policy_name": "real_time_control_guard",
+      "trigger_action_name": "INCREASE_CONTROL_PRIORITY",
+      "traffic_udp_port": 5202,
+      "ping_log_keywords": [
+        "urllc"
+      ],
+      "iperf_log_keywords": [
+        "urllc"
+      ],
+      "latency_avg_threshold_ms": 20.0,
+      "latency_max_threshold_ms": 35.0,
+      "packet_loss_threshold_percent": 1.0
+    },
+    "high_throughput_data": {
+      "policy_name": "high_throughput_guard",
+      "trigger_action_name": "TIGHTEN_DATA_SHAPING",
+      "traffic_udp_port": 5201,
+      "iperf_log_keywords": [
+        "embb"
+      ],
+      "monitored_queue_ids": [
+        "1"
+      ],
+      "throughput_threshold_bps": 60000000,
+      "queue_occupancy_threshold_bytes_per_second": 4000000,
+      "queue_packets_threshold_per_second": 500.0
+    },
+    "sensor_telemetry": {
+      "policy_name": "sensor_telemetry_guard",
+      "trigger_action_name": "PROTECT_SENSOR_MIN_BW",
+      "traffic_udp_port": 5203,
+      "iperf_log_keywords": [
+        "mmtc"
+      ],
+      "monitored_interface_names": [
+        "v-edn-host"
+      ],
+      "loss_threshold_percent": 2.0,
+      "delivery_ratio_threshold_percent": 98.0,
+      "drop_rate_threshold_percent": 0.5
+    }
+  }
+}
