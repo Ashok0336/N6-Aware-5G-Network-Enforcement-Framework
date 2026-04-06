@@ -1,7 +1,7 @@
 {
   "config_path": "/home/ak/Desktop/openairinterfacE5G_J/ci-scripts/yaml_files/5g_rfsimulator/telemetry/config.yaml",
   "event_type": "telemetry_snapshot",
-  "run_id": "telemetry-20260402_155403",
+  "run_id": "telemetry-20260406_132125",
   "slice_metrics": {
     "embb": {
       "delivery_ratio_percent": null,
@@ -83,9 +83,9 @@
       "flow_packet_rate_pps": null,
       "flow_packets_total": null,
       "flow_throughput_bps": null,
-      "jitter_ms": 0.06,
-      "latency_avg_ms": 0.311,
-      "latency_max_ms": 0.396,
+      "jitter_ms": 0.052,
+      "latency_avg_ms": 0.301,
+      "latency_max_ms": 0.366,
       "loss_percent": 0.0,
       "queue_bytes_per_second": 0.0,
       "queue_bytes_total": 0.0,
@@ -112,389 +112,358 @@
       "udp_port": 5202
     }
   },
-  "snapshot_index": 12,
+  "snapshot_index": 148,
   "telemetry": {
     "docker": {
       "containers": {
         "onos": {
           "block_io": {
-            "raw": "2.81MB / 3.74MB",
-            "total_bytes": 3740000,
-            "used_bytes": 2810000
+            "raw": "194MB / 134MB",
+            "total_bytes": 134000000,
+            "used_bytes": 194000000
           },
-          "cpu_percent": 0.91,
+          "cpu_percent": 0.74,
           "memory": {
-            "raw": "1.999GiB / 30.78GiB",
+            "raw": "2.466GiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 2146409906
+            "used_bytes": 2647847337
           },
-          "memory_percent": 6.49,
+          "memory_percent": 8.01,
           "network": {
-            "raw": "5.6MB / 4.77MB",
-            "total_bytes": 4770000,
-            "used_bytes": 5600000
+            "raw": "31MB / 9.36MB",
+            "total_bytes": 9360000,
+            "used_bytes": 31000000
           },
-          "pids": 407,
+          "pids": 406,
           "raw": {
-            "BlockIO": "2.81MB / 3.74MB",
-            "CPUPerc": "0.91%",
+            "BlockIO": "194MB / 134MB",
+            "CPUPerc": "0.74%",
             "Container": "onos",
-            "ID": "aadfbc8206d9",
-            "MemPerc": "6.49%",
-            "MemUsage": "1.999GiB / 30.78GiB",
+            "ID": "e33fcccd1824",
+            "MemPerc": "8.01%",
+            "MemUsage": "2.466GiB / 30.78GiB",
             "Name": "onos",
-            "NetIO": "5.6MB / 4.77MB",
-            "PIDs": "407"
+            "NetIO": "31MB / 9.36MB",
+            "PIDs": "406"
           }
         },
         "ovs": {
           "block_io": {
-            "raw": "0B / 2.9MB",
-            "total_bytes": 2900000,
-            "used_bytes": 0
+            "raw": "60.4MB / 5.12MB",
+            "total_bytes": 5120000,
+            "used_bytes": 60400000
           },
-          "cpu_percent": 7.34,
+          "cpu_percent": 0.42,
           "memory": {
-            "raw": "21.8MiB / 30.78GiB",
+            "raw": "77.22MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 22858956
+            "used_bytes": 80971038
           },
-          "memory_percent": 0.07,
+          "memory_percent": 0.25,
           "network": {
-            "raw": "3.37MB / 5.27MB",
-            "total_bytes": 5270000,
-            "used_bytes": 3370000
+            "raw": "8.67MB / 30.8MB",
+            "total_bytes": 30800000,
+            "used_bytes": 8670000
           },
           "pids": 31,
           "raw": {
-            "BlockIO": "0B / 2.9MB",
-            "CPUPerc": "7.34%",
+            "BlockIO": "60.4MB / 5.12MB",
+            "CPUPerc": "0.42%",
             "Container": "ovs",
-            "ID": "07815b7fa481",
-            "MemPerc": "0.07%",
-            "MemUsage": "21.8MiB / 30.78GiB",
+            "ID": "723d17c7e934",
+            "MemPerc": "0.25%",
+            "MemUsage": "77.22MiB / 30.78GiB",
             "Name": "ovs",
-            "NetIO": "3.37MB / 5.27MB",
+            "NetIO": "8.67MB / 30.8MB",
             "PIDs": "31"
           }
         },
         "rfsim5g-oai-ext-dn": {
           "block_io": {
-            "raw": "0B / 0B",
+            "raw": "8.44MB / 0B",
             "total_bytes": 0,
-            "used_bytes": 0
+            "used_bytes": 8440000
           },
-          "cpu_percent": 1.09,
+          "cpu_percent": 0.0,
           "memory": {
-            "raw": "3.207MiB / 30.78GiB",
+            "raw": "9.25MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 3362783
+            "used_bytes": 9699328
           },
-          "memory_percent": 0.01,
+          "memory_percent": 0.03,
           "network": {
-            "raw": "7.33kB / 126B",
+            "raw": "12.9kB / 126B",
             "total_bytes": 126,
-            "used_bytes": 7330
+            "used_bytes": 12900
           },
-          "pids": 9,
+          "pids": 3,
           "raw": {
-            "BlockIO": "0B / 0B",
-            "CPUPerc": "1.09%",
+            "BlockIO": "8.44MB / 0B",
+            "CPUPerc": "0.00%",
             "Container": "rfsim5g-oai-ext-dn",
-            "ID": "7b17794af373",
-            "MemPerc": "0.01%",
-            "MemUsage": "3.207MiB / 30.78GiB",
+            "ID": "581fd244afd2",
+            "MemPerc": "0.03%",
+            "MemUsage": "9.25MiB / 30.78GiB",
             "Name": "rfsim5g-oai-ext-dn",
-            "NetIO": "7.33kB / 126B",
-            "PIDs": "9"
+            "NetIO": "12.9kB / 126B",
+            "PIDs": "3"
           }
         },
         "rfsim5g-oai-gnb": {
           "block_io": {
-            "raw": "0B / 13MB",
-            "total_bytes": 13000000,
-            "used_bytes": 0
+            "raw": "49MB / 22.6MB",
+            "total_bytes": 22600000,
+            "used_bytes": 49000000
           },
-          "cpu_percent": 139.88,
+          "cpu_percent": 136.59,
           "memory": {
-            "raw": "535.8MiB / 30.78GiB",
+            "raw": "580.2MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 561827020
+            "used_bytes": 608383795
           },
-          "memory_percent": 1.7,
+          "memory_percent": 1.84,
           "network": {
-            "raw": "3.01TB / 3.01TB",
-            "total_bytes": 3010000000000,
-            "used_bytes": 3010000000000
+            "raw": "4.92TB / 4.92TB",
+            "total_bytes": 4920000000000,
+            "used_bytes": 4920000000000
           },
           "pids": 28,
           "raw": {
-            "BlockIO": "0B / 13MB",
-            "CPUPerc": "139.88%",
+            "BlockIO": "49MB / 22.6MB",
+            "CPUPerc": "136.59%",
             "Container": "rfsim5g-oai-gnb",
-            "ID": "d3490966f065",
-            "MemPerc": "1.70%",
-            "MemUsage": "535.8MiB / 30.78GiB",
+            "ID": "560a37cdc11d",
+            "MemPerc": "1.84%",
+            "MemUsage": "580.2MiB / 30.78GiB",
             "Name": "rfsim5g-oai-gnb",
-            "NetIO": "3.01TB / 3.01TB",
+            "NetIO": "4.92TB / 4.92TB",
             "PIDs": "28"
           }
         },
         "rfsim5g-oai-nr-ue": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
-            "used_bytes": 0
+            "raw": "17.8MB / 659kB",
+            "total_bytes": 659000,
+            "used_bytes": 17800000
           },
-          "cpu_percent": 17.04,
+          "cpu_percent": 15.47,
           "memory": {
-            "raw": "427.6MiB / 30.78GiB",
+            "raw": "444.8MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448371097
+            "used_bytes": 466406604
           },
-          "memory_percent": 1.36,
+          "memory_percent": 1.41,
           "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "17.04%",
+            "BlockIO": "17.8MB / 659kB",
+            "CPUPerc": "15.47%",
             "Container": "rfsim5g-oai-nr-ue",
-            "ID": "d2b1c60a7271",
-            "MemPerc": "1.36%",
-            "MemUsage": "427.6MiB / 30.78GiB",
+            "ID": "015881a746a9",
+            "MemPerc": "1.41%",
+            "MemUsage": "444.8MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue",
-            "NetIO": "301GB / 301GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue10": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 15.8,
+          "cpu_percent": 16.02,
           "memory": {
-            "raw": "428.1MiB / 30.78GiB",
+            "raw": "427.7MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448895385
+            "used_bytes": 448475955
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "15.80%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "16.02%",
             "Container": "rfsim5g-oai-nr-ue10",
-            "ID": "ed5baf165733",
+            "ID": "820c44a6cfb0",
             "MemPerc": "1.36%",
-            "MemUsage": "428.1MiB / 30.78GiB",
+            "MemUsage": "427.7MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue10",
-            "NetIO": "301GB / 301GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue2": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 16.66,
+          "cpu_percent": 16.1,
           "memory": {
-            "raw": "428.4MiB / 30.78GiB",
+            "raw": "427.7MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 449209958
+            "used_bytes": 448475955
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "16.66%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "16.10%",
             "Container": "rfsim5g-oai-nr-ue2",
-            "ID": "41896cec38ea",
+            "ID": "1f204bc18906",
             "MemPerc": "1.36%",
-            "MemUsage": "428.4MiB / 30.78GiB",
+            "MemUsage": "427.7MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue2",
-            "NetIO": "301GB / 301GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue3": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 15.04,
+          "cpu_percent": 14.34,
           "memory": {
-            "raw": "428MiB / 30.78GiB",
+            "raw": "427.9MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448790528
+            "used_bytes": 448685670
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 302GB",
-            "total_bytes": 302000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "15.04%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "14.34%",
             "Container": "rfsim5g-oai-nr-ue3",
-            "ID": "04e8f40abfb2",
+            "ID": "8f45ee672aa5",
             "MemPerc": "1.36%",
-            "MemUsage": "428MiB / 30.78GiB",
+            "MemUsage": "427.9MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue3",
-            "NetIO": "301GB / 302GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue4": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 16.68,
+          "cpu_percent": 15.67,
           "memory": {
-            "raw": "427.3MiB / 30.78GiB",
+            "raw": "427.8MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448056524
+            "used_bytes": 448580812
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 302GB",
-            "total_bytes": 302000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "16.68%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "15.67%",
             "Container": "rfsim5g-oai-nr-ue4",
-            "ID": "891550311ad7",
+            "ID": "1b6e76a69c1d",
             "MemPerc": "1.36%",
-            "MemUsage": "427.3MiB / 30.78GiB",
+            "MemUsage": "427.8MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue4",
-            "NetIO": "301GB / 302GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue5": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
-            "used_bytes": 0
+            "raw": "193kB / 659kB",
+            "total_bytes": 659000,
+            "used_bytes": 193000
           },
-          "cpu_percent": 16.18,
+          "cpu_percent": 16.61,
           "memory": {
-            "raw": "428MiB / 30.78GiB",
+            "raw": "431MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448790528
+            "used_bytes": 451936256
           },
-          "memory_percent": 1.36,
+          "memory_percent": 1.37,
           "network": {
-            "raw": "301GB / 302GB",
-            "total_bytes": 302000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "16.18%",
+            "BlockIO": "193kB / 659kB",
+            "CPUPerc": "16.61%",
             "Container": "rfsim5g-oai-nr-ue5",
-            "ID": "2cdc966e3f0c",
-            "MemPerc": "1.36%",
-            "MemUsage": "428MiB / 30.78GiB",
+            "ID": "8100e81f355f",
+            "MemPerc": "1.37%",
+            "MemUsage": "431MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue5",
-            "NetIO": "301GB / 302GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue6": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 16.72,
+          "cpu_percent": 14.9,
           "memory": {
-            "raw": "428MiB / 30.78GiB",
+            "raw": "428.2MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 448790528
+            "used_bytes": 449000243
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 302GB",
-            "total_bytes": 302000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "16.72%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "14.90%",
             "Container": "rfsim5g-oai-nr-ue6",
-            "ID": "59899da6cc35",
+            "ID": "3b400e9f6d96",
             "MemPerc": "1.36%",
-            "MemUsage": "428MiB / 30.78GiB",
+            "MemUsage": "428.2MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue6",
-            "NetIO": "301GB / 302GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue7": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 14.98,
-          "memory": {
-            "raw": "428MiB / 30.78GiB",
-            "total_bytes": 33049773342,
-            "used_bytes": 448790528
-          },
-          "memory_percent": 1.36,
-          "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
-          },
-          "pids": 30,
-          "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "14.98%",
-            "Container": "rfsim5g-oai-nr-ue7",
-            "ID": "df43b358e897",
-            "MemPerc": "1.36%",
-            "MemUsage": "428MiB / 30.78GiB",
-            "Name": "rfsim5g-oai-nr-ue7",
-            "NetIO": "301GB / 301GB",
-            "PIDs": "30"
-          }
-        },
-        "rfsim5g-oai-nr-ue8": {
-          "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
-            "used_bytes": 0
-          },
-          "cpu_percent": 15.42,
+          "cpu_percent": 17.24,
           "memory": {
             "raw": "428.4MiB / 30.78GiB",
             "total_bytes": 33049773342,
@@ -502,82 +471,113 @@
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "15.42%",
-            "Container": "rfsim5g-oai-nr-ue8",
-            "ID": "5b588a3ec69d",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "17.24%",
+            "Container": "rfsim5g-oai-nr-ue7",
+            "ID": "3211dc5a270a",
             "MemPerc": "1.36%",
             "MemUsage": "428.4MiB / 30.78GiB",
+            "Name": "rfsim5g-oai-nr-ue7",
+            "NetIO": "492GB / 492GB",
+            "PIDs": "30"
+          }
+        },
+        "rfsim5g-oai-nr-ue8": {
+          "block_io": {
+            "raw": "1.75MB / 659kB",
+            "total_bytes": 659000,
+            "used_bytes": 1750000
+          },
+          "cpu_percent": 16.45,
+          "memory": {
+            "raw": "430.1MiB / 30.78GiB",
+            "total_bytes": 33049773342,
+            "used_bytes": 450992537
+          },
+          "memory_percent": 1.36,
+          "network": {
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
+          },
+          "pids": 30,
+          "raw": {
+            "BlockIO": "1.75MB / 659kB",
+            "CPUPerc": "16.45%",
+            "Container": "rfsim5g-oai-nr-ue8",
+            "ID": "f7d6181d119c",
+            "MemPerc": "1.36%",
+            "MemUsage": "430.1MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue8",
-            "NetIO": "301GB / 301GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-nr-ue9": {
           "block_io": {
-            "raw": "0B / 344kB",
-            "total_bytes": 344000,
+            "raw": "0B / 659kB",
+            "total_bytes": 659000,
             "used_bytes": 0
           },
-          "cpu_percent": 15.16,
+          "cpu_percent": 15.64,
           "memory": {
-            "raw": "428.3MiB / 30.78GiB",
+            "raw": "428.6MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 449105100
+            "used_bytes": 449419673
           },
           "memory_percent": 1.36,
           "network": {
-            "raw": "301GB / 301GB",
-            "total_bytes": 301000000000,
-            "used_bytes": 301000000000
+            "raw": "492GB / 492GB",
+            "total_bytes": 492000000000,
+            "used_bytes": 492000000000
           },
           "pids": 30,
           "raw": {
-            "BlockIO": "0B / 344kB",
-            "CPUPerc": "15.16%",
+            "BlockIO": "0B / 659kB",
+            "CPUPerc": "15.64%",
             "Container": "rfsim5g-oai-nr-ue9",
-            "ID": "0587abde17d7",
+            "ID": "cb30678d1416",
             "MemPerc": "1.36%",
-            "MemUsage": "428.3MiB / 30.78GiB",
+            "MemUsage": "428.6MiB / 30.78GiB",
             "Name": "rfsim5g-oai-nr-ue9",
-            "NetIO": "301GB / 301GB",
+            "NetIO": "492GB / 492GB",
             "PIDs": "30"
           }
         },
         "rfsim5g-oai-upf": {
           "block_io": {
-            "raw": "0B / 0B",
-            "total_bytes": 0,
-            "used_bytes": 0
+            "raw": "38.8MB / 8.19kB",
+            "total_bytes": 8189,
+            "used_bytes": 38800000
           },
           "cpu_percent": 0.0,
           "memory": {
-            "raw": "4.184MiB / 30.78GiB",
+            "raw": "39.64MiB / 30.78GiB",
             "total_bytes": 33049773342,
-            "used_bytes": 4387241
+            "used_bytes": 41565552
           },
-          "memory_percent": 0.01,
+          "memory_percent": 0.13,
           "network": {
-            "raw": "30.3kB / 23.3kB",
-            "total_bytes": 23300,
-            "used_bytes": 30300
+            "raw": "52.8kB / 40.1kB",
+            "total_bytes": 40100,
+            "used_bytes": 52800
           },
           "pids": 15,
           "raw": {
-            "BlockIO": "0B / 0B",
+            "BlockIO": "38.8MB / 8.19kB",
             "CPUPerc": "0.00%",
             "Container": "rfsim5g-oai-upf",
-            "ID": "8e7dd21cf74a",
-            "MemPerc": "0.01%",
-            "MemUsage": "4.184MiB / 30.78GiB",
+            "ID": "e50aa78e62da",
+            "MemPerc": "0.13%",
+            "MemUsage": "39.64MiB / 30.78GiB",
             "Name": "rfsim5g-oai-upf",
-            "NetIO": "30.3kB / 23.3kB",
+            "NetIO": "52.8kB / 40.1kB",
             "PIDs": "15"
           }
         }
@@ -585,7 +585,7 @@
       "error": "",
       "ok": true,
       "stderr": "",
-      "stdout": "{\"BlockIO\":\"0B / 2.9MB\",\"CPUPerc\":\"7.34%\",\"Container\":\"ovs\",\"ID\":\"07815b7fa481\",\"MemPerc\":\"0.07%\",\"MemUsage\":\"21.8MiB / 30.78GiB\",\"Name\":\"ovs\",\"NetIO\":\"3.37MB / 5.27MB\",\"PIDs\":\"31\"}\n{\"BlockIO\":\"2.81MB / 3.74MB\",\"CPUPerc\":\"0.91%\",\"Container\":\"onos\",\"ID\":\"aadfbc8206d9\",\"MemPerc\":\"6.49%\",\"MemUsage\":\"1.999GiB / 30.78GiB\",\"Name\":\"onos\",\"NetIO\":\"5.6MB / 4.77MB\",\"PIDs\":\"407\"}\n{\"BlockIO\":\"0B / 0B\",\"CPUPerc\":\"0.00%\",\"Container\":\"rfsim5g-oai-upf\",\"ID\":\"8e7dd21cf74a\",\"MemPerc\":\"0.01%\",\"MemUsage\":\"4.184MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-upf\",\"NetIO\":\"30.3kB / 23.3kB\",\"PIDs\":\"15\"}\n{\"BlockIO\":\"0B / 0B\",\"CPUPerc\":\"1.09%\",\"Container\":\"rfsim5g-oai-ext-dn\",\"ID\":\"7b17794af373\",\"MemPerc\":\"0.01%\",\"MemUsage\":\"3.207MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-ext-dn\",\"NetIO\":\"7.33kB / 126B\",\"PIDs\":\"9\"}\n{\"BlockIO\":\"0B / 13MB\",\"CPUPerc\":\"139.88%\",\"Container\":\"rfsim5g-oai-gnb\",\"ID\":\"d3490966f065\",\"MemPerc\":\"1.70%\",\"MemUsage\":\"535.8MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-gnb\",\"NetIO\":\"3.01TB / 3.01TB\",\"PIDs\":\"28\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"17.04%\",\"Container\":\"rfsim5g-oai-nr-ue\",\"ID\":\"d2b1c60a7271\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.6MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"16.66%\",\"Container\":\"rfsim5g-oai-nr-ue2\",\"ID\":\"41896cec38ea\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.4MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue2\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"15.04%\",\"Container\":\"rfsim5g-oai-nr-ue3\",\"ID\":\"04e8f40abfb2\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue3\",\"NetIO\":\"301GB / 302GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"16.68%\",\"Container\":\"rfsim5g-oai-nr-ue4\",\"ID\":\"891550311ad7\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.3MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue4\",\"NetIO\":\"301GB / 302GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"16.18%\",\"Container\":\"rfsim5g-oai-nr-ue5\",\"ID\":\"2cdc966e3f0c\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue5\",\"NetIO\":\"301GB / 302GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"16.72%\",\"Container\":\"rfsim5g-oai-nr-ue6\",\"ID\":\"59899da6cc35\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue6\",\"NetIO\":\"301GB / 302GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"14.98%\",\"Container\":\"rfsim5g-oai-nr-ue7\",\"ID\":\"df43b358e897\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue7\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"15.42%\",\"Container\":\"rfsim5g-oai-nr-ue8\",\"ID\":\"5b588a3ec69d\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.4MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue8\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"15.16%\",\"Container\":\"rfsim5g-oai-nr-ue9\",\"ID\":\"0587abde17d7\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.3MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue9\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 344kB\",\"CPUPerc\":\"15.80%\",\"Container\":\"rfsim5g-oai-nr-ue10\",\"ID\":\"ed5baf165733\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.1MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue10\",\"NetIO\":\"301GB / 301GB\",\"PIDs\":\"30\"}"
+      "stdout": "{\"BlockIO\":\"60.4MB / 5.12MB\",\"CPUPerc\":\"0.42%\",\"Container\":\"ovs\",\"ID\":\"723d17c7e934\",\"MemPerc\":\"0.25%\",\"MemUsage\":\"77.22MiB / 30.78GiB\",\"Name\":\"ovs\",\"NetIO\":\"8.67MB / 30.8MB\",\"PIDs\":\"31\"}\n{\"BlockIO\":\"194MB / 134MB\",\"CPUPerc\":\"0.74%\",\"Container\":\"onos\",\"ID\":\"e33fcccd1824\",\"MemPerc\":\"8.01%\",\"MemUsage\":\"2.466GiB / 30.78GiB\",\"Name\":\"onos\",\"NetIO\":\"31MB / 9.36MB\",\"PIDs\":\"406\"}\n{\"BlockIO\":\"38.8MB / 8.19kB\",\"CPUPerc\":\"0.00%\",\"Container\":\"rfsim5g-oai-upf\",\"ID\":\"e50aa78e62da\",\"MemPerc\":\"0.13%\",\"MemUsage\":\"39.64MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-upf\",\"NetIO\":\"52.8kB / 40.1kB\",\"PIDs\":\"15\"}\n{\"BlockIO\":\"8.44MB / 0B\",\"CPUPerc\":\"0.00%\",\"Container\":\"rfsim5g-oai-ext-dn\",\"ID\":\"581fd244afd2\",\"MemPerc\":\"0.03%\",\"MemUsage\":\"9.25MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-ext-dn\",\"NetIO\":\"12.9kB / 126B\",\"PIDs\":\"3\"}\n{\"BlockIO\":\"49MB / 22.6MB\",\"CPUPerc\":\"136.59%\",\"Container\":\"rfsim5g-oai-gnb\",\"ID\":\"560a37cdc11d\",\"MemPerc\":\"1.84%\",\"MemUsage\":\"580.2MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-gnb\",\"NetIO\":\"4.92TB / 4.92TB\",\"PIDs\":\"28\"}\n{\"BlockIO\":\"17.8MB / 659kB\",\"CPUPerc\":\"15.47%\",\"Container\":\"rfsim5g-oai-nr-ue\",\"ID\":\"015881a746a9\",\"MemPerc\":\"1.41%\",\"MemUsage\":\"444.8MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"16.10%\",\"Container\":\"rfsim5g-oai-nr-ue2\",\"ID\":\"1f204bc18906\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.7MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue2\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"14.34%\",\"Container\":\"rfsim5g-oai-nr-ue3\",\"ID\":\"8f45ee672aa5\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.9MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue3\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"15.67%\",\"Container\":\"rfsim5g-oai-nr-ue4\",\"ID\":\"1b6e76a69c1d\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.8MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue4\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"193kB / 659kB\",\"CPUPerc\":\"16.61%\",\"Container\":\"rfsim5g-oai-nr-ue5\",\"ID\":\"8100e81f355f\",\"MemPerc\":\"1.37%\",\"MemUsage\":\"431MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue5\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"14.90%\",\"Container\":\"rfsim5g-oai-nr-ue6\",\"ID\":\"3b400e9f6d96\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.2MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue6\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"17.24%\",\"Container\":\"rfsim5g-oai-nr-ue7\",\"ID\":\"3211dc5a270a\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.4MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue7\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"1.75MB / 659kB\",\"CPUPerc\":\"16.45%\",\"Container\":\"rfsim5g-oai-nr-ue8\",\"ID\":\"f7d6181d119c\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"430.1MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue8\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"15.64%\",\"Container\":\"rfsim5g-oai-nr-ue9\",\"ID\":\"cb30678d1416\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"428.6MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue9\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}\n{\"BlockIO\":\"0B / 659kB\",\"CPUPerc\":\"16.02%\",\"Container\":\"rfsim5g-oai-nr-ue10\",\"ID\":\"820c44a6cfb0\",\"MemPerc\":\"1.36%\",\"MemUsage\":\"427.7MiB / 30.78GiB\",\"Name\":\"rfsim5g-oai-nr-ue10\",\"NetIO\":\"492GB / 492GB\",\"PIDs\":\"30\"}"
     },
     "iperf": {
       "slices": {
@@ -778,18 +778,18 @@
       "devices": [
         {
           "annotations": {
-            "channelId": "192.168.71.161:35424",
+            "channelId": "192.168.71.161:56518",
             "datapathDescription": "None",
             "managementAddress": "192.168.71.161",
             "protocol": "OF_13"
           },
           "available": true,
-          "chassisId": "8a30c91ec941",
+          "chassisId": "2e55a032524f",
           "driver": "ovs",
-          "humanReadableLastUpdate": "connected 48m3s ago",
+          "humanReadableLastUpdate": "connected 3d1h ago",
           "hw": "Open vSwitch",
-          "id": "of:00008a30c91ec941",
-          "lastUpdate": "1775164074198",
+          "id": "of:00002e55a032524f",
+          "lastUpdate": "1775239304209",
           "mfr": "Nicira, Inc.",
           "role": "MASTER",
           "serial": "None",
@@ -799,130 +799,19 @@
       ],
       "error": "",
       "flows_by_device": {
-        "of:00008a30c91ec941": {
+        "of:00002e55a032524f": {
           "error": "",
           "flow_count": 7,
           "flows": [
             {
-              "appId": "org.onosproject.rest",
-              "bytes": 0,
-              "deviceId": "of:00008a30c91ec941",
-              "groupId": 0,
-              "id": "50665498014778244",
-              "isPermanent": true,
-              "lastSeen": 1775166955220,
-              "life": 4,
-              "liveType": "UNKNOWN",
-              "packets": 0,
-              "priority": 45000,
-              "selector": {
-                "criteria": [
-                  {
-                    "port": 4,
-                    "type": "IN_PORT"
-                  },
-                  {
-                    "ethType": "0x806",
-                    "type": "ETH_TYPE"
-                  }
-                ]
-              },
-              "state": "ADDED",
-              "tableId": 0,
-              "tableName": "0",
-              "timeout": 0,
-              "treatment": {
-                "deferred": [],
-                "instructions": [
-                  {
-                    "port": "2",
-                    "type": "OUTPUT"
-                  }
-                ]
-              }
-            },
-            {
-              "appId": "org.onosproject.rest",
-              "bytes": 98,
-              "deviceId": "of:00008a30c91ec941",
-              "groupId": 0,
-              "id": "50665497496666504",
-              "isPermanent": true,
-              "lastSeen": 1775166955220,
-              "life": 4,
-              "liveType": "UNKNOWN",
-              "packets": 1,
-              "priority": 5000,
-              "selector": {
-                "criteria": [
-                  {
-                    "port": 2,
-                    "type": "IN_PORT"
-                  },
-                  {
-                    "ethType": "0x800",
-                    "type": "ETH_TYPE"
-                  }
-                ]
-              },
-              "state": "ADDED",
-              "tableId": 0,
-              "tableName": "0",
-              "timeout": 0,
-              "treatment": {
-                "deferred": [],
-                "instructions": [
-                  {
-                    "port": "4",
-                    "type": "OUTPUT"
-                  }
-                ]
-              }
-            },
-            {
               "appId": "org.onosproject.core",
               "bytes": 0,
-              "deviceId": "of:00008a30c91ec941",
+              "deviceId": "of:00002e55a032524f",
               "groupId": 0,
-              "id": "281477034596254",
+              "id": "281477079854984",
               "isPermanent": true,
-              "lastSeen": 1775166955220,
-              "life": 2880,
-              "liveType": "UNKNOWN",
-              "packets": 0,
-              "priority": 40000,
-              "selector": {
-                "criteria": [
-                  {
-                    "ethType": "0x806",
-                    "type": "ETH_TYPE"
-                  }
-                ]
-              },
-              "state": "ADDED",
-              "tableId": 0,
-              "tableName": "0",
-              "timeout": 0,
-              "treatment": {
-                "clearDeferred": true,
-                "deferred": [],
-                "instructions": [
-                  {
-                    "port": "CONTROLLER",
-                    "type": "OUTPUT"
-                  }
-                ]
-              }
-            },
-            {
-              "appId": "org.onosproject.core",
-              "bytes": 0,
-              "deviceId": "of:00008a30c91ec941",
-              "groupId": 0,
-              "id": "281477346486177",
-              "isPermanent": true,
-              "lastSeen": 1775166955220,
-              "life": 2880,
+              "lastSeen": 1775504695811,
+              "life": 5010,
               "liveType": "UNKNOWN",
               "packets": 0,
               "priority": 40000,
@@ -952,11 +841,11 @@
             {
               "appId": "org.onosproject.rest",
               "bytes": 98,
-              "deviceId": "of:00008a30c91ec941",
+              "deviceId": "of:00002e55a032524f",
               "groupId": 0,
-              "id": "50665499492879163",
+              "id": "50665499332317603",
               "isPermanent": true,
-              "lastSeen": 1775166955220,
+              "lastSeen": 1775504690811,
               "life": 4,
               "liveType": "UNKNOWN",
               "packets": 1,
@@ -964,7 +853,7 @@
               "selector": {
                 "criteria": [
                   {
-                    "port": 4,
+                    "port": 2,
                     "type": "IN_PORT"
                   },
                   {
@@ -981,7 +870,7 @@
                 "deferred": [],
                 "instructions": [
                   {
-                    "port": "2",
+                    "port": "1",
                     "type": "OUTPUT"
                   }
                 ]
@@ -990,11 +879,11 @@
             {
               "appId": "org.onosproject.rest",
               "bytes": 0,
-              "deviceId": "of:00008a30c91ec941",
+              "deviceId": "of:00002e55a032524f",
               "groupId": 0,
-              "id": "50665497282706395",
+              "id": "50665495865010369",
               "isPermanent": true,
-              "lastSeen": 1775166955220,
+              "lastSeen": 1775504690811,
               "life": 4,
               "liveType": "UNKNOWN",
               "packets": 0,
@@ -1019,7 +908,7 @@
                 "deferred": [],
                 "instructions": [
                   {
-                    "port": "4",
+                    "port": "1",
                     "type": "OUTPUT"
                   }
                 ]
@@ -1028,12 +917,85 @@
             {
               "appId": "org.onosproject.core",
               "bytes": 0,
-              "deviceId": "of:00008a30c91ec941",
+              "deviceId": "of:00002e55a032524f",
               "groupId": 0,
-              "id": "281477211226976",
+              "id": "281478782335175",
               "isPermanent": true,
-              "lastSeen": 1775166955220,
-              "life": 2880,
+              "lastSeen": 1775504695811,
+              "life": 5010,
+              "liveType": "UNKNOWN",
+              "packets": 0,
+              "priority": 40000,
+              "selector": {
+                "criteria": [
+                  {
+                    "ethType": "0x806",
+                    "type": "ETH_TYPE"
+                  }
+                ]
+              },
+              "state": "ADDED",
+              "tableId": 0,
+              "tableName": "0",
+              "timeout": 0,
+              "treatment": {
+                "clearDeferred": true,
+                "deferred": [],
+                "instructions": [
+                  {
+                    "port": "CONTROLLER",
+                    "type": "OUTPUT"
+                  }
+                ]
+              }
+            },
+            {
+              "appId": "org.onosproject.rest",
+              "bytes": 0,
+              "deviceId": "of:00002e55a032524f",
+              "groupId": 0,
+              "id": "50665496418803414",
+              "isPermanent": true,
+              "lastSeen": 1775504690811,
+              "life": 4,
+              "liveType": "UNKNOWN",
+              "packets": 0,
+              "priority": 45000,
+              "selector": {
+                "criteria": [
+                  {
+                    "port": 1,
+                    "type": "IN_PORT"
+                  },
+                  {
+                    "ethType": "0x806",
+                    "type": "ETH_TYPE"
+                  }
+                ]
+              },
+              "state": "ADDED",
+              "tableId": 0,
+              "tableName": "0",
+              "timeout": 0,
+              "treatment": {
+                "deferred": [],
+                "instructions": [
+                  {
+                    "port": "2",
+                    "type": "OUTPUT"
+                  }
+                ]
+              }
+            },
+            {
+              "appId": "org.onosproject.core",
+              "bytes": 0,
+              "deviceId": "of:00002e55a032524f",
+              "groupId": 0,
+              "id": "281477191102703",
+              "isPermanent": true,
+              "lastSeen": 1775504695811,
+              "life": 5010,
               "liveType": "UNKNOWN",
               "packets": 0,
               "priority": 40000,
@@ -1059,6 +1021,44 @@
                   }
                 ]
               }
+            },
+            {
+              "appId": "org.onosproject.rest",
+              "bytes": 98,
+              "deviceId": "of:00002e55a032524f",
+              "groupId": 0,
+              "id": "50665497047226363",
+              "isPermanent": true,
+              "lastSeen": 1775504690811,
+              "life": 4,
+              "liveType": "UNKNOWN",
+              "packets": 1,
+              "priority": 5000,
+              "selector": {
+                "criteria": [
+                  {
+                    "port": 1,
+                    "type": "IN_PORT"
+                  },
+                  {
+                    "ethType": "0x800",
+                    "type": "ETH_TYPE"
+                  }
+                ]
+              },
+              "state": "ADDED",
+              "tableId": 0,
+              "tableName": "0",
+              "timeout": 0,
+              "treatment": {
+                "deferred": [],
+                "instructions": [
+                  {
+                    "port": "2",
+                    "type": "OUTPUT"
+                  }
+                ]
+              }
             }
           ],
           "ok": true
@@ -1069,26 +1069,26 @@
     "ovs": {
       "bridge_name": "br-n6",
       "controller": {
-        "details": "_uuid               : 1edbf98b-a889-4a1c-8f39-1873e1d9d1a7\nconnection_mode     : []\ncontroller_burst_limit: []\ncontroller_queue_size: []\ncontroller_rate_limit: []\nenable_async_messages: []\nexternal_ids        : {}\ninactivity_probe    : []\nis_connected        : false\nlocal_gateway       : []\nlocal_ip            : []\nlocal_netmask       : []\nmax_backoff         : []\nother_config        : {}\nrole                : []\nstatus              : {}\ntarget              : \"tcp:192.168.71.160:6653\"\ntype                : []",
-        "is_connected": false,
+        "details": "_uuid               : 39220a8d-deb6-45e1-a955-de7da2a6e884\nconnection_mode     : []\ncontroller_burst_limit: []\ncontroller_queue_size: []\ncontroller_rate_limit: []\nenable_async_messages: []\nexternal_ids        : {}\ninactivity_probe    : []\nis_connected        : true\nlocal_gateway       : []\nlocal_ip            : []\nlocal_netmask       : []\nmax_backoff         : []\nother_config        : {}\nrole                : master\nstatus              : {last_error=\"Connection refused\", sec_since_connect=\"5012\", state=ACTIVE}\ntarget              : \"tcp:192.168.71.160:6653\"\ntype                : []",
+        "is_connected": true,
         "target": "tcp:192.168.71.160:6653"
       },
-      "flow_dump": "OFPST_FLOW reply (OF1.3) (xid=0x2):\n cookie=0x6e360001, duration=2.180s, table=0, n_packets=0, n_bytes=0, priority=45000,arp,in_port=2 actions=output:4\n cookie=0x6e360001, duration=2.162s, table=0, n_packets=0, n_bytes=0, priority=45000,arp,in_port=4 actions=output:2\n cookie=0x6e360001, duration=2.142s, table=0, n_packets=0, n_bytes=0, priority=5000,ip,in_port=2 actions=output:4\n cookie=0x6e360001, duration=2.122s, table=0, n_packets=0, n_bytes=0, priority=5000,ip,in_port=4 actions=output:2\n cookie=0x1000085300360, duration=2883.304s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,dl_type=0x88cc actions=CONTROLLER:65535,clear_actions\n cookie=0x100008d3fe7a1, duration=2883.304s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,dl_type=0x8942 actions=CONTROLLER:65535,clear_actions\n cookie=0x100007aa8d79e, duration=2883.304s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,arp actions=CONTROLLER:65535,clear_actions",
+      "flow_dump": "OFPST_FLOW reply (OF1.3) (xid=0x2):\n cookie=0xb40000d21211a3, duration=3.139s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=5000,ip,in_port=2 actions=output:1\n cookie=0xb4000049de57fb, duration=3.139s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=5000,ip,in_port=1 actions=output:2\n cookie=0xb4000024695ed6, duration=3.139s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=45000,arp,in_port=1 actions=output:2\n cookie=0xb40000036728c1, duration=3.139s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=45000,arp,in_port=2 actions=output:1\n cookie=0x10000e2d538c7, duration=5013.946s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,arp actions=CONTROLLER:65535,clear_actions\n cookie=0x1000083fcf0ef, duration=5013.946s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,dl_type=0x88cc actions=CONTROLLER:65535,clear_actions\n cookie=0x100007d5b6f88, duration=5013.946s, table=0, n_packets=0, n_bytes=0, send_flow_rem priority=40000,dl_type=0x8942 actions=CONTROLLER:65535,clear_actions",
       "ok": true,
-      "port_dump": "OFPST_PORT reply (OF1.3) (xid=0x2): 3 ports\n  port  4: rx pkts=1131, bytes=102170, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=3005, bytes=368278, drop=0, errs=0, coll=0\n           duration=2906.714s\n  port LOCAL: rx pkts=15, bytes=1146, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=0, bytes=0, drop=0, errs=0, coll=0\n           duration=2908.924s\n  port  2: rx pkts=1131, bytes=102170, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=3003, bytes=367994, drop=0, errs=0, coll=0\n           duration=2906.791s",
+      "port_dump": "OFPST_PORT reply (OF1.3) (xid=0x2): 3 ports\n  port LOCAL: rx pkts=16, bytes=1216, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=0, bytes=0, drop=0, errs=0, coll=0\n           duration=5030.439s\n  port  1: rx pkts=565, bytes=50874, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=3801, bytes=510386, drop=0, errs=0, coll=0\n           duration=5030.276s\n  port  2: rx pkts=565, bytes=50874, drop=0, errs=0, frame=0, over=0, crc=0\n           tx pkts=3801, bytes=510386, drop=0, errs=0, coll=0\n           duration=5030.201s",
       "port_name_to_ofport": {
-        "v-edn-host": "4",
-        "v-upf-host": "2"
+        "v-edn-host": "2",
+        "v-upf-host": "1"
       },
       "ports": {
         "LOCAL": {
           "ofport": "LOCAL",
           "rx_bytes_per_second": 0.0,
-          "rx_bytes_total": 1146,
+          "rx_bytes_total": 1216,
           "rx_drop_total": 0,
           "rx_drops_per_second": 0.0,
           "rx_packets_per_second": 0.0,
-          "rx_packets_total": 15,
+          "rx_packets_total": 16,
           "tx_bytes_per_second": 0.0,
           "tx_bytes_total": 0,
           "tx_drop_total": 0,
@@ -1097,74 +1097,74 @@
           "tx_packets_total": 0
         },
         "v-edn-host": {
-          "ofport": "4",
-          "rx_bytes_per_second": 30.71331338764421,
-          "rx_bytes_total": 102170,
+          "ofport": "2",
+          "rx_bytes_per_second": 30.860988906174228,
+          "rx_bytes_total": 50874,
           "rx_drop_total": 0,
           "rx_drops_per_second": 0.0,
-          "rx_packets_per_second": 0.3134011570167777,
-          "rx_packets_total": 1131,
-          "tx_bytes_per_second": 119.71924198040907,
-          "tx_bytes_total": 368278,
+          "rx_packets_per_second": 0.3149080500630023,
+          "rx_packets_total": 565,
+          "tx_bytes_per_second": 120.29487512406689,
+          "tx_bytes_total": 510386,
           "tx_drop_rate_percent": 0.0,
           "tx_drop_total": 0,
           "tx_drops_per_second": 0.0,
-          "tx_packets_per_second": 0.940203471050333,
-          "tx_packets_total": 3005
+          "tx_packets_per_second": 0.944724150189007,
+          "tx_packets_total": 3801
         },
         "v-upf-host": {
-          "ofport": "2",
-          "rx_bytes_per_second": 30.71331338764421,
-          "rx_bytes_total": 102170,
+          "ofport": "1",
+          "rx_bytes_per_second": 30.860988906174228,
+          "rx_bytes_total": 50874,
           "rx_drop_total": 0,
           "rx_drops_per_second": 0.0,
-          "rx_packets_per_second": 0.3134011570167777,
-          "rx_packets_total": 1131,
-          "tx_bytes_per_second": 119.71924198040907,
-          "tx_bytes_total": 367994,
+          "rx_packets_per_second": 0.3149080500630023,
+          "rx_packets_total": 565,
+          "tx_bytes_per_second": 120.29487512406689,
+          "tx_bytes_total": 510386,
           "tx_drop_rate_percent": 0.0,
           "tx_drop_total": 0,
           "tx_drops_per_second": 0.0,
-          "tx_packets_per_second": 0.940203471050333,
-          "tx_packets_total": 3003
+          "tx_packets_per_second": 0.944724150189007,
+          "tx_packets_total": 3801
         }
       },
-      "queue_dump": "OFPST_QUEUE reply (OF1.3) (xid=0x2): 4 queues\n  port 4 queue 0: bytes=284, pkts=2, errors=0, duration=527537634.4189967296s\n  port 4 queue 1: bytes=0, pkts=0, errors=0, duration=527537634.4189967296s\n  port 4 queue 2: bytes=0, pkts=0, errors=0, duration=527537634.4189967296s\n  port 4 queue 3: bytes=0, pkts=0, errors=0, duration=527537634.4189967296s",
+      "queue_dump": "OFPST_QUEUE reply (OF1.3) (xid=0x2): 4 queues\n  port 2 queue 0: bytes=568, pkts=4, errors=0, duration=1008852058.3413967296s\n  port 2 queue 1: bytes=0, pkts=0, errors=0, duration=1008852058.3413967296s\n  port 2 queue 2: bytes=0, pkts=0, errors=0, duration=1008852058.3413967296s\n  port 2 queue 3: bytes=0, pkts=0, errors=0, duration=1008852058.3413967296s",
       "queues": {
         "v-edn-host": {
           "0": {
             "bytes_per_second": 0.0,
-            "bytes_total": 284,
-            "duration_seconds": 527537634.41899675,
+            "bytes_total": 568,
+            "duration_seconds": 1008852058.3413967,
             "errors_total": 0,
-            "ofport": "4",
+            "ofport": "2",
             "packets_per_second": 0.0,
-            "packets_total": 2
+            "packets_total": 4
           },
           "1": {
             "bytes_per_second": 0.0,
             "bytes_total": 0,
-            "duration_seconds": 527537634.41899675,
+            "duration_seconds": 1008852058.3413967,
             "errors_total": 0,
-            "ofport": "4",
+            "ofport": "2",
             "packets_per_second": 0.0,
             "packets_total": 0
           },
           "2": {
             "bytes_per_second": 0.0,
             "bytes_total": 0,
-            "duration_seconds": 527537634.41899675,
+            "duration_seconds": 1008852058.3413967,
             "errors_total": 0,
-            "ofport": "4",
+            "ofport": "2",
             "packets_per_second": 0.0,
             "packets_total": 0
           },
           "3": {
             "bytes_per_second": 0.0,
             "bytes_total": 0,
-            "duration_seconds": 527537634.41899675,
+            "duration_seconds": 1008852058.3413967,
             "errors_total": 0,
-            "ofport": "4",
+            "ofport": "2",
             "packets_per_second": 0.0,
             "packets_total": 0
           }
@@ -1178,26 +1178,26 @@
           "container_name": "rfsim5g-oai-ext-dn",
           "error": "",
           "interface_name": "dn0",
-          "jitter_ms": 0.06,
+          "jitter_ms": 0.052,
           "loss_percent": 0.0,
           "ok": true,
           "received": 3,
           "reply_rtts_ms": [
-            0.262,
-            0.396,
-            0.275
+            0.237,
+            0.366,
+            0.3
           ],
-          "rtt_avg_ms": 0.311,
-          "rtt_max_ms": 0.396,
-          "rtt_min_ms": 0.262,
+          "rtt_avg_ms": 0.301,
+          "rtt_max_ms": 0.366,
+          "rtt_min_ms": 0.237,
           "slice_name": "urllc",
           "stderr": "",
-          "stdout": "PING 192.168.72.134 (192.168.72.134) from 192.168.72.135 dn0: 56(84) bytes of data.\n64 bytes from 192.168.72.134: icmp_seq=1 ttl=64 time=0.262 ms\n64 bytes from 192.168.72.134: icmp_seq=2 ttl=64 time=0.396 ms\n64 bytes from 192.168.72.134: icmp_seq=3 ttl=64 time=0.275 ms\n\n--- 192.168.72.134 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2082ms\nrtt min/avg/max/mdev = 0.262/0.311/0.396/0.060 ms",
+          "stdout": "PING 192.168.72.134 (192.168.72.134) from 192.168.72.135 dn0: 56(84) bytes of data.\n64 bytes from 192.168.72.134: icmp_seq=1 ttl=64 time=0.237 ms\n64 bytes from 192.168.72.134: icmp_seq=2 ttl=64 time=0.366 ms\n64 bytes from 192.168.72.134: icmp_seq=3 ttl=64 time=0.300 ms\n\n--- 192.168.72.134 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2037ms\nrtt min/avg/max/mdev = 0.237/0.301/0.366/0.052 ms",
           "target_ip": "192.168.72.134",
           "transmitted": 3
         }
       }
     }
   },
-  "timestamp": "2026-04-02T21:56:02.167Z"
+  "timestamp": "2026-04-06T19:45:03.439Z"
 }

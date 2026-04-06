@@ -11,6 +11,10 @@ from telemetry.collectors.iperf_collector import IperfCollector
 from telemetry.collectors.onos_stats_collector import OnosStatsCollector
 from telemetry.collectors.ovs_stats_collector import OvsStatsCollector
 from telemetry.collectors.ping_collector import PingCollector
+from telemetry.prometheus_exporter import (
+    DEFAULT_METRICS_HTTP_HOST,
+    DEFAULT_METRICS_HTTP_PORT,
+)
 
 
 class TelemetryScheduler:
@@ -18,8 +22,15 @@ class TelemetryScheduler:
         self.config_path = config_path.resolve()
         raw_config = load_structured_file(self.config_path)
         telemetry_cfg = dict(raw_config.get("telemetry", {}))
+        self.telemetry_cfg = telemetry_cfg
         self.poll_interval_seconds = float(telemetry_cfg.get("poll_interval_seconds", 5))
         self.command_timeout_seconds = float(telemetry_cfg.get("command_timeout_seconds", 8))
+        self.metrics_http_host = str(
+            telemetry_cfg.get("metrics_http_host", DEFAULT_METRICS_HTTP_HOST)
+        )
+        self.metrics_http_port = int(
+            telemetry_cfg.get("metrics_http_port", DEFAULT_METRICS_HTTP_PORT)
+        )
         self.output_dir = ensure_directory(
             self._resolve_path(telemetry_cfg.get("output_dir", "../logs/telemetry"))
         )
@@ -60,6 +71,7 @@ class TelemetryScheduler:
         return (self.config_path.parent / path).resolve()
 
     def collect_once(self) -> Dict[str, Any]:
+        started = time.monotonic()
         ovs = self.ovs_collector.collect()
         onos = self.onos_collector.collect()
         ping = self.ping_collector.collect()
@@ -82,6 +94,7 @@ class TelemetryScheduler:
             },
             "slice_metrics": slice_metrics,
         }
+        snapshot["collection_duration_ms"] = int((time.monotonic() - started) * 1000)
         self.snapshot_index += 1
         self._write_snapshot(snapshot)
         return snapshot

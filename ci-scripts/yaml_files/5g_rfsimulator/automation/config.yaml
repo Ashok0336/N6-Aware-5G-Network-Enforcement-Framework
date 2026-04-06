@@ -1,7 +1,10 @@
 {
+  "config_scope": "Experiment automation collector only. automation/run_telemetry.sh and automation/run_closed_loop.sh use ../telemetry/config.yaml.",
   "service_mapping_path": "./service_mapping.yaml",
   "polling_interval_seconds": 2,
   "command_timeout_seconds": 5,
+  "metrics_http_host": "0.0.0.0",
+  "metrics_http_port": 8000,
   "ovs_container_name": "ovs",
   "ovs_bridge_name": "br-n6",
   "monitored_ports": [

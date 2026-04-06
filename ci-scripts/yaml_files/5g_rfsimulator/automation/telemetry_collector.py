@@ -7,6 +7,7 @@ import argparse
 import base64
 import datetime as dt
 import json
+import math
 import os
 import re
 import shutil
@@ -28,12 +29,35 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     yaml = None
 
+try:
+    from prometheus_client import Counter, Gauge, start_http_server
+except ImportError as exc:  # pragma: no cover - dependency checked at runtime
+    Counter = None  # type: ignore[assignment]
+    Gauge = None  # type: ignore[assignment]
+    start_http_server = None  # type: ignore[assignment]
+    PROMETHEUS_IMPORT_ERROR: Optional[ImportError] = exc
+else:
+    PROMETHEUS_IMPORT_ERROR = None
+
 
 DEFAULT_CONFIG_NAME = "config.yaml"
 DEFAULT_LOG_DIR = "../logs/telemetry"
 DEFAULT_TRAFFIC_LOG_DIR = "../logs"
 DEFAULT_POLL_INTERVAL_SECONDS = 2
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 5
+DEFAULT_METRICS_HTTP_HOST = "0.0.0.0"
+DEFAULT_METRICS_HTTP_PORT = 8000
+
+SLICE_NAME_BY_UDP_PORT = {
+    5201: "embb",
+    5202: "urllc",
+    5203: "mmtc",
+}
+SLICE_NAME_BY_SERVICE_CLASS = {
+    "real_time_control": "urllc",
+    "high_throughput_data": "embb",
+    "sensor_telemetry": "mmtc",
+}
 
 PORT_DESC_RE = re.compile(r"^\s*(LOCAL|\d+)(?:\(([^)]+)\))?:\s*(.*)$")
 RX_PORT_STATS_RE = re.compile(
@@ -266,6 +290,15 @@ def to_float(value: Any) -> Optional[float]:
     return None
 
 
+def prometheus_value(value: Any) -> float:
+    numeric = to_float(value)
+    if numeric is None:
+        return float("nan")
+    if math.isfinite(numeric):
+        return numeric
+    return float("nan")
+
+
 def parse_human_bitrate(text: Optional[str]) -> Optional[float]:
     if not text:
         return None
@@ -314,9 +347,13 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     env_onos_password = os.getenv("ONOS_PASSWORD", "").strip()
     env_ovs_container_name = os.getenv("OVS_CONTAINER_NAME", "").strip()
     env_ovs_bridge_name = os.getenv("OVS_BRIDGE_NAME", "").strip()
+    env_metrics_http_host = os.getenv("TELEMETRY_METRICS_HOST", "").strip()
+    env_metrics_http_port = os.getenv("TELEMETRY_METRICS_PORT", "").strip()
 
     config.setdefault("polling_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
     config.setdefault("command_timeout_seconds", DEFAULT_COMMAND_TIMEOUT_SECONDS)
+    config.setdefault("metrics_http_host", DEFAULT_METRICS_HTTP_HOST)
+    config.setdefault("metrics_http_port", DEFAULT_METRICS_HTTP_PORT)
     config.setdefault("ovs_container_name", "ovs")
     config.setdefault("ovs_bridge_name", "br-n6")
     config.setdefault("monitored_ports", ["v-upf-host", "v-edn-host"])
@@ -342,6 +379,10 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
         config["ovs_container_name"] = env_ovs_container_name
     if env_ovs_bridge_name:
         config["ovs_bridge_name"] = env_ovs_bridge_name
+    if env_metrics_http_host:
+        config["metrics_http_host"] = env_metrics_http_host
+    if env_metrics_http_port:
+        config["metrics_http_port"] = env_metrics_http_port
     if env_onos_devices_url:
         config["onos_base_url"] = env_onos_devices_url
     elif env_onos_base_url:
@@ -388,6 +429,8 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
 
     config["polling_interval_seconds"] = float(config["polling_interval_seconds"])
     config["command_timeout_seconds"] = int(config["command_timeout_seconds"])
+    config["metrics_http_host"] = str(config["metrics_http_host"])
+    config["metrics_http_port"] = int(config["metrics_http_port"])
     config["onos_timeout_seconds"] = float(config["onos_timeout_seconds"])
     config["monitored_ports"] = [str(item) for item in config.get("monitored_ports", [])]
     config["monitored_interfaces"] = [
@@ -458,6 +501,8 @@ class TelemetryCollector:
         self.run_once = run_once
         self.polling_interval_seconds = float(config["polling_interval_seconds"])
         self.command_timeout_seconds = int(config["command_timeout_seconds"])
+        self.metrics_http_host = str(config["metrics_http_host"])
+        self.metrics_http_port = int(config["metrics_http_port"])
         self.ovs_container_name = str(config["ovs_container_name"])
         self.ovs_bridge_name = str(config["ovs_bridge_name"])
         self.monitored_ports = list(dict.fromkeys(config.get("monitored_ports", [])))
@@ -478,6 +523,286 @@ class TelemetryCollector:
         self.received_signal_name: Optional[str] = None
         self.warned_keys: set[str] = set()
         self.sample_index = 0
+        self.metrics_path = "/metrics"
+        self.metrics_access_url = f"http://127.0.0.1:{self.metrics_http_port}{self.metrics_path}"
+        self.metrics_bind_label = f"{self.metrics_http_host}:{self.metrics_http_port}"
+        self.metrics_server_started = False
+        self._register_prometheus_metrics()
+
+    def _register_prometheus_metrics(self) -> None:
+        if Gauge is None or Counter is None:
+            return
+        self.prometheus_sample_counter = Counter(
+            "telemetry_collector_samples_total",
+            "Total number of telemetry snapshots collected by the telemetry collector.",
+        )
+        self.prometheus_metric_update_error_counter = Counter(
+            "telemetry_collector_metric_update_errors_total",
+            "Total number of Prometheus metric update errors seen by the telemetry collector.",
+        )
+        self.prometheus_collection_duration_ms = Gauge(
+            "telemetry_collection_duration_ms",
+            "Duration of the most recent telemetry collection cycle in milliseconds.",
+        )
+        self.prometheus_urllc_latency_avg_ms = Gauge(
+            "urllc_latency_avg_ms",
+            "Average URLLC latency in milliseconds.",
+            ["slice"],
+        )
+        self.prometheus_urllc_latency_max_ms = Gauge(
+            "urllc_latency_max_ms",
+            "Maximum URLLC latency in milliseconds.",
+            ["slice"],
+        )
+        self.prometheus_urllc_jitter_ms = Gauge(
+            "urllc_jitter_ms",
+            "URLLC jitter in milliseconds.",
+            ["slice"],
+        )
+        self.prometheus_urllc_loss_percent = Gauge(
+            "urllc_loss_percent",
+            "URLLC packet loss percentage.",
+            ["slice"],
+        )
+        self.prometheus_embb_throughput_bps = Gauge(
+            "embb_throughput_bps",
+            "eMBB throughput in bits per second.",
+            ["slice"],
+        )
+        self.prometheus_embb_packet_rate_pps = Gauge(
+            "embb_packet_rate_pps",
+            "eMBB packet rate in packets per second.",
+            ["slice"],
+        )
+        self.prometheus_mmtc_delivery_ratio_percent = Gauge(
+            "mmtc_delivery_ratio_percent",
+            "mMTC delivery ratio percentage.",
+            ["slice"],
+        )
+        self.prometheus_mmtc_packet_rate_pps = Gauge(
+            "mmtc_packet_rate_pps",
+            "mMTC packet rate in packets per second.",
+            ["slice"],
+        )
+        self.prometheus_ovs_flow_packets_total = Gauge(
+            "ovs_flow_packets_total",
+            "Observed OVS flow packet totals from the latest telemetry snapshot.",
+            ["slice", "udp_port", "device_id"],
+        )
+        self.prometheus_ovs_flow_bytes_total = Gauge(
+            "ovs_flow_bytes_total",
+            "Observed OVS flow byte totals from the latest telemetry snapshot.",
+            ["slice", "udp_port", "device_id"],
+        )
+        self.prometheus_ovs_queue_bytes_total = Gauge(
+            "ovs_queue_bytes_total",
+            "Observed OVS queue byte totals from the latest telemetry snapshot.",
+            ["slice", "queue_id", "device_id"],
+        )
+        self.prometheus_ovs_queue_packets_total = Gauge(
+            "ovs_queue_packets_total",
+            "Observed OVS queue packet totals from the latest telemetry snapshot.",
+            ["slice", "queue_id", "device_id"],
+        )
+        self.prometheus_container_cpu_percent = Gauge(
+            "container_cpu_percent",
+            "Container CPU usage percentage from docker stats.",
+            ["container_name"],
+        )
+        self.prometheus_container_memory_bytes = Gauge(
+            "container_memory_bytes",
+            "Container memory usage in bytes from docker stats.",
+            ["container_name"],
+        )
+
+    def start_metrics_server(self) -> None:
+        if self.metrics_server_started:
+            return
+        if PROMETHEUS_IMPORT_ERROR is not None or start_http_server is None:
+            raise RuntimeError(
+                "prometheus_client is required for the telemetry metrics endpoint. "
+                "Install it before running telemetry_collector.py."
+            ) from PROMETHEUS_IMPORT_ERROR
+        start_http_server(self.metrics_http_port, addr=self.metrics_http_host)
+        self.metrics_server_started = True
+        print_console(
+            "INFO",
+            f"Prometheus metrics available at {self.metrics_access_url} "
+            f"(bind {self.metrics_bind_label}).",
+        )
+
+    def resolve_device_id_label(self, snapshot: Dict[str, Any]) -> str:
+        onos_reachability = snapshot.get("onos_reachability", {})
+        if isinstance(onos_reachability, dict):
+            for item in onos_reachability.get("available_device_ids", []):
+                if item:
+                    return str(item)
+        ovs_bridge_status = snapshot.get("ovs_bridge_status", {})
+        if isinstance(ovs_bridge_status, dict) and ovs_bridge_status.get("bridge_name"):
+            return str(ovs_bridge_status["bridge_name"])
+        return self.ovs_bridge_name
+
+    def resolve_slice_name(self, service_name: str, service_record: Dict[str, Any]) -> str:
+        mapped = SLICE_NAME_BY_SERVICE_CLASS.get(service_name)
+        if mapped:
+            return mapped
+        udp_port = service_record.get("udp_port")
+        if isinstance(udp_port, int):
+            return SLICE_NAME_BY_UDP_PORT.get(udp_port, service_name)
+        return service_name
+
+    def compute_packet_rate_pps(self, service_record: Dict[str, Any]) -> Optional[float]:
+        return to_float(service_record.get("sender_packet_rate_per_second"))
+
+    def aggregate_all_queue_totals(self, snapshot: Dict[str, Any]) -> Dict[str, float]:
+        totals = {"queue_bytes": 0.0, "queue_packets": 0.0}
+        ovs_queue_statistics = snapshot.get("ovs_queue_statistics", {})
+        queue_stats = ovs_queue_statistics.get("queue_stats", []) if isinstance(ovs_queue_statistics, dict) else []
+        found = False
+        if isinstance(queue_stats, list):
+            for record in queue_stats:
+                if not isinstance(record, dict):
+                    continue
+                totals["queue_bytes"] += float(record.get("bytes", 0) or 0)
+                totals["queue_packets"] += float(record.get("packets", 0) or 0)
+                found = True
+        return totals if found else {}
+
+    def update_prometheus_metrics(self, snapshot: Dict[str, Any]) -> None:
+        if Gauge is None or Counter is None:
+            raise RuntimeError(
+                "prometheus_client is required for Prometheus metrics export."
+            )
+
+        self.prometheus_sample_counter.inc()
+        self.prometheus_collection_duration_ms.set(
+            prometheus_value(snapshot.get("collection_duration_ms"))
+        )
+
+        service_metrics = snapshot.get("service_metrics", {})
+        if not isinstance(service_metrics, dict):
+            service_metrics = {}
+
+        urllc_metrics = service_metrics.get("real_time_control", {})
+        embb_metrics = service_metrics.get("high_throughput_data", {})
+        mmtc_metrics = service_metrics.get("sensor_telemetry", {})
+        if not isinstance(urllc_metrics, dict):
+            urllc_metrics = {}
+        if not isinstance(embb_metrics, dict):
+            embb_metrics = {}
+        if not isinstance(mmtc_metrics, dict):
+            mmtc_metrics = {}
+
+        self.prometheus_urllc_latency_avg_ms.labels(slice="urllc").set(
+            prometheus_value(urllc_metrics.get("latency_avg_ms"))
+        )
+        self.prometheus_urllc_latency_max_ms.labels(slice="urllc").set(
+            prometheus_value(urllc_metrics.get("latency_max_ms"))
+        )
+        self.prometheus_urllc_jitter_ms.labels(slice="urllc").set(
+            prometheus_value(urllc_metrics.get("jitter_ms"))
+        )
+        self.prometheus_urllc_loss_percent.labels(slice="urllc").set(
+            prometheus_value(urllc_metrics.get("packet_loss_percent"))
+        )
+        self.prometheus_embb_throughput_bps.labels(slice="embb").set(
+            prometheus_value(embb_metrics.get("throughput_bps"))
+        )
+        self.prometheus_embb_packet_rate_pps.labels(slice="embb").set(
+            prometheus_value(self.compute_packet_rate_pps(embb_metrics))
+        )
+        self.prometheus_mmtc_delivery_ratio_percent.labels(slice="mmtc").set(
+            prometheus_value(mmtc_metrics.get("packet_delivery_ratio_percent"))
+        )
+        self.prometheus_mmtc_packet_rate_pps.labels(slice="mmtc").set(
+            prometheus_value(self.compute_packet_rate_pps(mmtc_metrics))
+        )
+
+        device_id = self.resolve_device_id_label(snapshot)
+        self.prometheus_ovs_flow_packets_total.clear()
+        self.prometheus_ovs_flow_bytes_total.clear()
+        self.prometheus_ovs_queue_bytes_total.clear()
+        self.prometheus_ovs_queue_packets_total.clear()
+
+        ovs_flow_counters = snapshot.get("ovs_flow_counters", {})
+        if isinstance(ovs_flow_counters, dict):
+            self.prometheus_ovs_flow_packets_total.labels(
+                slice="all",
+                udp_port="all",
+                device_id=device_id,
+            ).set(prometheus_value(ovs_flow_counters.get("total_packets")))
+            self.prometheus_ovs_flow_bytes_total.labels(
+                slice="all",
+                udp_port="all",
+                device_id=device_id,
+            ).set(prometheus_value(ovs_flow_counters.get("total_bytes")))
+
+        all_queue_totals = self.aggregate_all_queue_totals(snapshot)
+        if all_queue_totals:
+            self.prometheus_ovs_queue_bytes_total.labels(
+                slice="all",
+                queue_id="all",
+                device_id=device_id,
+            ).set(prometheus_value(all_queue_totals.get("queue_bytes")))
+            self.prometheus_ovs_queue_packets_total.labels(
+                slice="all",
+                queue_id="all",
+                device_id=device_id,
+            ).set(prometheus_value(all_queue_totals.get("queue_packets")))
+
+        for service_name, service_record in service_metrics.items():
+            if not isinstance(service_record, dict):
+                continue
+            slice_name = self.resolve_slice_name(str(service_name), service_record)
+            udp_port = str(service_record.get("udp_port") or "unknown")
+            self.prometheus_ovs_flow_packets_total.labels(
+                slice=slice_name,
+                udp_port=udp_port,
+                device_id=device_id,
+            ).set(prometheus_value(service_record.get("flow_packets_total")))
+            self.prometheus_ovs_flow_bytes_total.labels(
+                slice=slice_name,
+                udp_port=udp_port,
+                device_id=device_id,
+            ).set(prometheus_value(service_record.get("flow_bytes_total")))
+
+            queue_ids = list_of_strings(service_record.get("queue_ids")) or ["unknown"]
+            for queue_id in queue_ids:
+                self.prometheus_ovs_queue_bytes_total.labels(
+                    slice=slice_name,
+                    queue_id=str(queue_id),
+                    device_id=device_id,
+                ).set(prometheus_value(service_record.get("queue_bytes")))
+                self.prometheus_ovs_queue_packets_total.labels(
+                    slice=slice_name,
+                    queue_id=str(queue_id),
+                    device_id=device_id,
+                ).set(prometheus_value(service_record.get("queue_packets")))
+
+        self.prometheus_container_cpu_percent.clear()
+        self.prometheus_container_memory_bytes.clear()
+        container_statistics = snapshot.get("container_statistics", {})
+        containers = (
+            container_statistics.get("containers", {})
+            if isinstance(container_statistics, dict)
+            else {}
+        )
+        if isinstance(containers, dict):
+            for container_name, container_record in containers.items():
+                if not isinstance(container_record, dict):
+                    continue
+                memory_usage = container_record.get("memory_usage", {})
+                used_bytes = (
+                    memory_usage.get("used_bytes")
+                    if isinstance(memory_usage, dict)
+                    else None
+                )
+                self.prometheus_container_cpu_percent.labels(
+                    container_name=str(container_name)
+                ).set(prometheus_value(container_record.get("cpu_percent")))
+                self.prometheus_container_memory_bytes.labels(
+                    container_name=str(container_name)
+                ).set(prometheus_value(used_bytes))
 
     def install_signal_handlers(self) -> None:
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -610,10 +935,20 @@ class TelemetryCollector:
 
         exit_code = 0
         try:
+            self.start_metrics_server()
             while not self.stop_requested:
                 started = time.monotonic()
                 self.sample_index += 1
                 snapshot = self.collect_snapshot()
+                try:
+                    self.update_prometheus_metrics(snapshot)
+                except Exception as exc:
+                    if hasattr(self, "prometheus_metric_update_error_counter"):
+                        self.prometheus_metric_update_error_counter.inc()
+                    self.warn_once(
+                        f"prometheus-update:{type(exc).__name__}",
+                        f"Failed to update Prometheus metrics: {exc}",
+                    )
                 self.write_jsonl(snapshot)
                 available_port_count = sum(
                     1
@@ -1949,6 +2284,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Collect a single snapshot and exit.",
     )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=None,
+        help=f"Prometheus metrics HTTP port override. Default comes from config or {DEFAULT_METRICS_HTTP_PORT}.",
+    )
     return parser
 
 
@@ -1967,6 +2308,8 @@ def main() -> int:
     except Exception as exc:
         print_console("ERROR", f"Failed to load config from {config_path}: {exc}")
         return 1
+    if args.metrics_port is not None:
+        config["metrics_http_port"] = int(args.metrics_port)
 
     collector = TelemetryCollector(config_path=config_path, config=config, run_once=args.once)
     return collector.run()
