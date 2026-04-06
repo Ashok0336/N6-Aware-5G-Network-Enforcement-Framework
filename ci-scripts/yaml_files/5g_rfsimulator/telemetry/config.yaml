@@ -1,6 +1,11 @@
+# Authoritative runtime telemetry config for:
+# - automation/run_telemetry.sh
+# - automation/run_closed_loop.sh
 telemetry:
   poll_interval_seconds: 5
   command_timeout_seconds: 8
+  metrics_http_host: "0.0.0.0"
+  metrics_http_port: 8000
   output_dir: ../logs/telemetry
   file_prefix: closed_loop_telemetry
   latest_snapshot_path: ../logs/telemetry/closed_loop_latest.json

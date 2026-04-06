@@ -51,7 +51,8 @@ Current UE-to-service mapping:
 
 - `service_mapping.yaml`: shared 10-UE service map
 - `service_mapping_utils.py`: loader used by telemetry, policy, and enforcement configs
-- `config.yaml`: telemetry config with multi-UE service bindings
+- `../telemetry/config.yaml`: authoritative closed-loop runtime telemetry config used by `run_telemetry.sh` and `run_closed_loop.sh`, including Prometheus metrics settings
+- `config.yaml`: experiment automation telemetry config used by `automation/telemetry_collector.py`
 - `policy_config.yaml`: policy config with service-aware multi-UE thresholds and bindings
 - `enforcement_config.yaml`: enforcement config annotated with the same service map
 - `telemetry_collector.py`: read-only collector with multi-UE service aggregation

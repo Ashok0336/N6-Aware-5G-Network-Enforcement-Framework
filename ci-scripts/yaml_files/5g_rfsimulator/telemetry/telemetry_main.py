@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from telemetry.prometheus_exporter import TelemetryPrometheusExporter
 from telemetry.scheduler import TelemetryScheduler
 
 
@@ -36,12 +37,31 @@ def main() -> int:
     parser = build_argument_parser()
     args = parser.parse_args()
     scheduler = TelemetryScheduler(Path(args.config))
+    exporter = TelemetryPrometheusExporter(
+        metrics_http_host=scheduler.metrics_http_host,
+        metrics_http_port=scheduler.metrics_http_port,
+        bridge_name=str(scheduler.ovs_cfg.get("bridge_name", "br-n6")),
+    )
     iteration = 0
     print(f"[telemetry] config={scheduler.config_path}")
     print(f"[telemetry] output={scheduler.output_path}")
     try:
+        exporter.start()
+    except RuntimeError as exc:
+        print(f"[telemetry][ERROR] {exc}")
+        return 1
+    print(
+        "[telemetry] Prometheus metrics endpoint listening on "
+        f"{exporter.metrics_bind_label}"
+    )
+    try:
         while True:
             snapshot = scheduler.collect_once()
+            try:
+                exporter.update(snapshot)
+            except Exception as exc:
+                exporter.record_update_error()
+                print(f"[telemetry][WARN] failed to update Prometheus metrics: {exc}")
             print(
                 "[telemetry] snapshot="
                 f"{snapshot['snapshot_index']} timestamp={snapshot['timestamp']} "

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import signal
 import sys
@@ -21,6 +22,16 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     yaml = None
 
+try:
+    from prometheus_client import Counter, Gauge, start_http_server
+except ImportError as exc:  # pragma: no cover - dependency checked at runtime
+    Counter = None  # type: ignore[assignment]
+    Gauge = None  # type: ignore[assignment]
+    start_http_server = None  # type: ignore[assignment]
+    PROMETHEUS_IMPORT_ERROR: Optional[ImportError] = exc
+else:
+    PROMETHEUS_IMPORT_ERROR = None
+
 
 DEFAULT_CONFIG_NAME = "policy_config.yaml"
 DEFAULT_POLL_INTERVAL_SECONDS = 2
@@ -31,6 +42,14 @@ DEFAULT_DECISION_COOLDOWN_SECONDS = 10
 DEFAULT_UNCHANGED_LOG_INTERVAL_SECONDS = 30
 DEFAULT_ACTION_MAINTAIN = "MAINTAIN_CURRENT_POLICY"
 DEFAULT_ACTION_RESTORE = "RESTORE_DEFAULT_POLICY"
+DEFAULT_METRICS_HTTP_HOST = "0.0.0.0"
+DEFAULT_METRICS_HTTP_PORT = 8001
+
+SLICE_NAME_BY_SERVICE_CLASS = {
+    "real_time_control": "urllc",
+    "high_throughput_data": "embb",
+    "sensor_telemetry": "mmtc",
+}
 
 
 def utc_timestamp() -> str:
@@ -91,6 +110,15 @@ def to_float(value: Any) -> Optional[float]:
     return None
 
 
+def prometheus_value(value: Any) -> float:
+    numeric = to_float(value)
+    if numeric is None:
+        return float("nan")
+    if math.isfinite(numeric):
+        return numeric
+    return float("nan")
+
+
 def first_numeric(*values: Any) -> Optional[float]:
     for value in values:
         numeric_value = to_float(value)
@@ -124,11 +152,15 @@ def strip_none_values(payload: Dict[str, Any]) -> Dict[str, Any]:
 def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str, Any]:
     base_dir = config_path.parent
     config = dict(raw_config)
+    env_metrics_http_host = os.getenv("POLICY_MANAGER_METRICS_HOST", "").strip()
+    env_metrics_http_port = os.getenv("POLICY_MANAGER_METRICS_PORT", "").strip()
 
     config.setdefault("polling_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
     config.setdefault("telemetry_dir", DEFAULT_TELEMETRY_DIR)
     config.setdefault("telemetry_glob", DEFAULT_TELEMETRY_GLOB)
     config.setdefault("log_dir", DEFAULT_POLICY_LOG_DIR)
+    config.setdefault("metrics_http_host", DEFAULT_METRICS_HTTP_HOST)
+    config.setdefault("metrics_http_port", DEFAULT_METRICS_HTTP_PORT)
     config.setdefault("decision_cooldown_seconds", DEFAULT_DECISION_COOLDOWN_SECONDS)
     config.setdefault("emit_unchanged_decisions", True)
     config.setdefault(
@@ -174,7 +206,14 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     )
     config = apply_service_mapping(base_dir, config)
 
+    if env_metrics_http_host:
+        config["metrics_http_host"] = env_metrics_http_host
+    if env_metrics_http_port:
+        config["metrics_http_port"] = env_metrics_http_port
+
     config["polling_interval_seconds"] = float(config["polling_interval_seconds"])
+    config["metrics_http_host"] = str(config["metrics_http_host"])
+    config["metrics_http_port"] = int(config["metrics_http_port"])
     config["decision_cooldown_seconds"] = float(config["decision_cooldown_seconds"])
     config["emit_unchanged_decisions"] = bool(config["emit_unchanged_decisions"])
     config["unchanged_decision_log_interval_seconds"] = float(
@@ -232,6 +271,8 @@ class PolicyManager:
         self.config = config
         self.run_once = run_once
         self.polling_interval_seconds = float(config["polling_interval_seconds"])
+        self.metrics_http_host = str(config["metrics_http_host"])
+        self.metrics_http_port = int(config["metrics_http_port"])
         self.telemetry_dir = Path(str(config["telemetry_dir"]))
         self.telemetry_glob = str(config["telemetry_glob"])
         self.log_dir = Path(str(config["log_dir"]))
@@ -255,6 +296,10 @@ class PolicyManager:
         self.run_id = f"policy-manager-{stamp}-{os.getpid()}"
         self.log_path = self.log_dir / f"policy_decisions_{stamp}.jsonl"
         self.log_handle = self.log_path.open("a", encoding="utf-8")
+        self.metrics_path = "/metrics"
+        self.metrics_access_url = f"http://127.0.0.1:{self.metrics_http_port}{self.metrics_path}"
+        self.metrics_bind_label = f"{self.metrics_http_host}:{self.metrics_http_port}"
+        self.metrics_server_started = False
         self.service_state: Dict[str, Dict[str, Any]] = {}
         for service_class in self.service_configs:
             self.service_state[service_class] = {
@@ -267,7 +312,107 @@ class PolicyManager:
                 "last_emitted_state": None,
                 "last_emitted_condition": None,
                 "last_emitted_at": None,
+                "last_decision_state": None,
             }
+        self._register_prometheus_metrics()
+
+    def _register_prometheus_metrics(self) -> None:
+        if Gauge is None or Counter is None:
+            return
+        self.prometheus_policy_cycle_total = Counter(
+            "policy_cycle_total",
+            "Total number of policy evaluation cycles processed by the policy manager.",
+        )
+        self.prometheus_policy_action_applied_total = Counter(
+            "policy_action_applied_total",
+            "Total number of new policy actions applied to the policy manager state machine.",
+            ["slice", "service_class", "policy_name", "recommended_action"],
+        )
+        self.prometheus_policy_dry_run_mode = Gauge(
+            "policy_dry_run_mode",
+            "Dry-run mode indicator for the policy manager. 1 means dry-run, 0 means active.",
+        )
+        self.prometheus_policy_last_decision_timestamp = Gauge(
+            "policy_last_decision_timestamp",
+            "Unix timestamp of the last emitted policy decision for each slice.",
+            ["slice", "service_class", "policy_name"],
+        )
+        self.prometheus_slice_policy_state = Gauge(
+            "slice_policy_state",
+            "Current policy state per slice. The active label set has value 1.",
+            [
+                "slice",
+                "service_class",
+                "policy_name",
+                "recommended_action",
+                "state_after_decision",
+                "decision_state",
+            ],
+        )
+
+    def start_metrics_server(self) -> None:
+        if self.metrics_server_started:
+            return
+        if PROMETHEUS_IMPORT_ERROR is not None or start_http_server is None:
+            raise RuntimeError(
+                "prometheus_client is required for the policy manager metrics endpoint. "
+                "Install it before running policy_manager.py."
+            ) from PROMETHEUS_IMPORT_ERROR
+        start_http_server(self.metrics_http_port, addr=self.metrics_http_host)
+        self.metrics_server_started = True
+        print_console(
+            "INFO",
+            f"Prometheus metrics available at {self.metrics_access_url} "
+            f"(bind {self.metrics_bind_label}).",
+        )
+
+    def resolve_slice_name(self, service_class: str) -> str:
+        return SLICE_NAME_BY_SERVICE_CLASS.get(service_class, service_class)
+
+    def update_policy_state_metrics(self) -> None:
+        if Gauge is None or Counter is None:
+            raise RuntimeError(
+                "prometheus_client is required for Prometheus metrics export."
+            )
+        self.prometheus_policy_dry_run_mode.set(1.0)
+        self.prometheus_slice_policy_state.clear()
+        self.prometheus_policy_last_decision_timestamp.clear()
+        for service_class, service_cfg in self.service_configs.items():
+            state = self.service_state.get(service_class, {})
+            if not isinstance(state, dict):
+                continue
+            slice_name = self.resolve_slice_name(service_class)
+            policy_name = str(service_cfg.get("policy_name") or service_class)
+            recommended_action = str(
+                state.get("last_emitted_action")
+                or state.get("effective_action")
+                or self.default_action
+            )
+            state_after_decision = str(
+                state.get("last_emitted_state")
+                or state.get("effective_action")
+                or self.default_action
+            )
+            decision_state = str(state.get("last_decision_state") or "initial")
+            self.prometheus_slice_policy_state.labels(
+                slice=slice_name,
+                service_class=service_class,
+                policy_name=policy_name,
+                recommended_action=recommended_action,
+                state_after_decision=state_after_decision,
+                decision_state=decision_state,
+            ).set(1.0)
+            last_emitted_at = state.get("last_emitted_at")
+            timestamp_value = (
+                last_emitted_at.timestamp()
+                if isinstance(last_emitted_at, dt.datetime)
+                else float("nan")
+            )
+            self.prometheus_policy_last_decision_timestamp.labels(
+                slice=slice_name,
+                service_class=service_class,
+                policy_name=policy_name,
+            ).set(timestamp_value)
 
     def install_signal_handlers(self) -> None:
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -310,6 +455,8 @@ class PolicyManager:
 
         exit_code = 0
         try:
+            self.start_metrics_server()
+            self.update_policy_state_metrics()
             while not self.stop_requested:
                 processed_any = False
                 for snapshot, telemetry_reference in self.read_new_snapshots():
@@ -439,6 +586,8 @@ class PolicyManager:
     def process_snapshot(
         self, snapshot: Dict[str, Any], telemetry_reference: Dict[str, Any]
     ) -> None:
+        if hasattr(self, "prometheus_policy_cycle_total"):
+            self.prometheus_policy_cycle_total.inc()
         snapshot_time = parse_timestamp(snapshot.get("timestamp"))
         delta_seconds = None
         if snapshot_time is not None and self.previous_snapshot_time is not None:
@@ -466,10 +615,29 @@ class PolicyManager:
             if decision is not None:
                 decision_count += 1
                 self.write_jsonl(decision)
+                if (
+                    decision.get("is_new_decision")
+                    and hasattr(self, "prometheus_policy_action_applied_total")
+                ):
+                    self.prometheus_policy_action_applied_total.labels(
+                        slice=self.resolve_slice_name(service_class),
+                        service_class=service_class,
+                        policy_name=str(service_cfg.get("policy_name") or service_class),
+                        recommended_action=str(
+                            decision.get("recommended_action") or self.default_action
+                        ),
+                    ).inc()
 
         self.previous_snapshot = snapshot
         self.previous_snapshot_time = snapshot_time
         self.last_processed_telemetry_reference = telemetry_reference
+        try:
+            self.update_policy_state_metrics()
+        except Exception as exc:
+            self.warn_once(
+                f"policy-prometheus-update:{type(exc).__name__}",
+                f"Failed to update policy Prometheus metrics: {exc}",
+            )
         print_console(
             "INFO",
             f"Evaluated telemetry sample {telemetry_reference.get('telemetry_sample_index')} "
@@ -1339,6 +1507,7 @@ class PolicyManager:
         service_state["last_emitted_state"] = state_after_decision
         service_state["last_emitted_condition"] = condition
         service_state["last_emitted_at"] = parse_timestamp(record["timestamp"])
+        service_state["last_decision_state"] = decision_state
         return record
 
 
@@ -1355,6 +1524,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--once",
         action="store_true",
         help="Process the currently available telemetry snapshots once and exit.",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=None,
+        help=f"Prometheus metrics HTTP port override. Default comes from config or {DEFAULT_METRICS_HTTP_PORT}.",
     )
     return parser
 
@@ -1374,6 +1549,8 @@ def main() -> int:
     except Exception as exc:
         print_console("ERROR", f"Failed to load config from {config_path}: {exc}")
         return 1
+    if args.metrics_port is not None:
+        config["metrics_http_port"] = int(args.metrics_port)
 
     manager = PolicyManager(config_path=config_path, config=config, run_once=args.once)
     return manager.run()

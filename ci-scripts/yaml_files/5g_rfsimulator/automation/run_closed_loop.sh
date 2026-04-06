@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTBED_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEFAULT_TELEMETRY_CONFIG_PATH="${TESTBED_DIR}/telemetry/config.yaml"
+TELEMETRY_CONFIG_PATH="${TELEMETRY_CONFIG_PATH:-${CONFIG_PATH:-${DEFAULT_TELEMETRY_CONFIG_PATH}}}"
+export TELEMETRY_CONFIG_PATH
 
 POLICY_ARGS=()
 if [[ "${1:-}" == "--active" ]]; then
@@ -30,6 +33,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "[closed-loop] starting telemetry service..."
+echo "[closed-loop] telemetry config: ${TELEMETRY_CONFIG_PATH}"
 "${SCRIPT_DIR}/run_telemetry.sh" "${TELEMETRY_ARGS[@]}" &
 telemetry_pid="$!"
 

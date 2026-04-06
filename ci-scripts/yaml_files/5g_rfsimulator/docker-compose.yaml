@@ -471,6 +471,38 @@ services:
             timeout: 5s
             retries: 12
 
+    # Optional observability profile for local lab monitoring.
+    prometheus:
+        container_name: prometheus
+        image: prom/prometheus
+        restart: unless-stopped
+        profiles: ["monitoring"]
+        command:
+            - --config.file=/etc/prometheus/prometheus.yml
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        ports:
+            - "9090:9090"
+        volumes:
+            - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+        networks:
+            public_net:
+
+    # Grafana persists dashboards and data sources across restarts.
+    grafana:
+        container_name: grafana
+        image: grafana/grafana
+        restart: unless-stopped
+        profiles: ["monitoring"]
+        ports:
+            - "3000:3000"
+        volumes:
+            - grafana-storage:/var/lib/grafana
+            - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+            - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+        networks:
+            public_net:
+
 networks:
     public_net:
         driver: bridge
@@ -480,3 +512,6 @@ networks:
                 - subnet: 192.168.71.128/26
         driver_opts:
             com.docker.network.bridge.name: "rfsim5g-public"
+
+volumes:
+    grafana-storage:

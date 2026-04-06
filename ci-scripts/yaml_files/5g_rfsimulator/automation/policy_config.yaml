@@ -1,6 +1,8 @@
 {
   "service_mapping_path": "./service_mapping.yaml",
   "polling_interval_seconds": 2,
+  "metrics_http_host": "0.0.0.0",
+  "metrics_http_port": 8001,
   "telemetry_dir": "../logs/telemetry",
   "telemetry_glob": "telemetry_*.jsonl",
   "log_dir": "../logs/policy",
