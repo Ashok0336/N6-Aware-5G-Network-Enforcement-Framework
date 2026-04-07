@@ -239,36 +239,6 @@ class OnosClient:
         return result
 
     @staticmethod
-    def build_udp_queue_flow(
-        device_id: str,
-        upf_port: str,
-        edn_port: str,
-        udp_port: int,
-        queue_id: int,
-        priority: int,
-    ) -> Dict[str, Any]:
-        return {
-            "priority": priority,
-            "timeout": 0,
-            "isPermanent": True,
-            "deviceId": device_id,
-            "treatment": {
-                "instructions": [
-                    {"type": "SET_QUEUE", "queueId": queue_id},
-                    {"type": "OUTPUT", "port": str(edn_port)},
-                ]
-            },
-            "selector": {
-                "criteria": [
-                    {"type": "IN_PORT", "port": str(upf_port)},
-                    {"type": "ETH_TYPE", "ethType": "0x0800"},
-                    {"type": "IP_PROTO", "protocol": 17},
-                    {"type": "UDP_DST", "udpPort": int(udp_port)},
-                ]
-            },
-        }
-
-    @staticmethod
     def build_reverse_flow(device_id: str, edn_port: str, upf_port: str, priority: int) -> Dict[str, Any]:
         return {
             "priority": priority,
@@ -354,8 +324,6 @@ class OnosClient:
             if not isinstance(item, dict):
                 continue
             instruction_type = item.get("type")
-            if instruction_type == "SET_QUEUE" and instruction_value("SET_QUEUE", "queueId") != str(item.get("queueId")):
-                return False
             if instruction_type == "OUTPUT" and instruction_value("OUTPUT", "port") != str(item.get("port")):
                 return False
         if str(flow.get("priority")) != str(spec.get("priority")):
@@ -365,32 +333,51 @@ class OnosClient:
     def post_flow(self, device_id: str, flow_payload: Dict[str, Any]) -> Dict[str, Any]:
         return self.request("POST", f"/onos/v1/flows/{device_id}", payload=flow_payload)
 
-    def ensure_slice_queue_flows(
+    def ensure_forwarding_flows(
         self,
         devices_path: str,
         upf_port_name: str,
         edn_port_name: str,
-        flow_rules: List[Dict[str, Any]],
         base_forward_flow_priority: int,
         reverse_flow_priority: int,
         arp_flow_priority: int,
         force_refresh: bool = False,
+        skipped_queue_rules: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         audits: List[Dict[str, Any]] = []
         installed: List[Dict[str, Any]] = []
         already_present: List[Dict[str, Any]] = []
         errors: List[str] = []
+        queue_skip_reason = (
+            "ONOS REST queue instructions are skipped; OVS installs per-slice queue assignment flows directly."
+        )
 
         if self.dry_run:
             planned_flows = [
                 {
-                    "udp_port": int(rule["udp_port"]),
-                    "queue_id": int(rule["queue_id"]),
-                    "priority": int(rule["priority"]),
+                    "type": "base_forward",
+                    "priority": int(base_forward_flow_priority),
                     "upf_port_name": upf_port_name,
                     "edn_port_name": edn_port_name,
-                }
-                for rule in flow_rules
+                },
+                {
+                    "type": "reverse_ipv4",
+                    "priority": int(reverse_flow_priority),
+                    "upf_port_name": upf_port_name,
+                    "edn_port_name": edn_port_name,
+                },
+                {
+                    "type": "arp_forward",
+                    "priority": int(arp_flow_priority),
+                    "in_port_name": upf_port_name,
+                    "out_port_name": edn_port_name,
+                },
+                {
+                    "type": "arp_forward",
+                    "priority": int(arp_flow_priority),
+                    "in_port_name": edn_port_name,
+                    "out_port_name": upf_port_name,
+                },
             ]
             return {
                 "ok": True,
@@ -400,9 +387,16 @@ class OnosClient:
                 "edn_port": edn_port_name,
                 "audits": audits,
                 "installed_flows": planned_flows,
+                "installed_forwarding_flows": planned_flows,
                 "existing_flows": [],
+                "existing_forwarding_flows": [],
                 "dry_run": True,
                 "planned_only": True,
+                "scope": "forwarding_only",
+                "queue_operations_attempted": False,
+                "queue_operations_skipped": True,
+                "queue_operation_reason": queue_skip_reason,
+                "skipped_queue_rules": list(skipped_queue_rules or []),
             }
 
         device_result = self.get_available_device(devices_path=devices_path)
@@ -415,6 +409,11 @@ class OnosClient:
                 "installed_flows": installed,
                 "existing_flows": already_present,
                 "dry_run": self.dry_run,
+                "scope": "forwarding_only",
+                "queue_operations_attempted": False,
+                "queue_operations_skipped": True,
+                "queue_operation_reason": queue_skip_reason,
+                "skipped_queue_rules": list(skipped_queue_rules or []),
             }
 
         device = device_result.get("available_device") or {}
@@ -429,21 +428,16 @@ class OnosClient:
                 "installed_flows": installed,
                 "existing_flows": already_present,
                 "dry_run": self.dry_run,
+                "scope": "forwarding_only",
+                "queue_operations_attempted": False,
+                "queue_operations_skipped": True,
+                "queue_operation_reason": queue_skip_reason,
+                "skipped_queue_rules": list(skipped_queue_rules or []),
             }
 
         upf_port = str(ports_result["upf_port"])
         edn_port = str(ports_result["edn_port"])
-        desired_flows = [
-            self.build_udp_queue_flow(
-                device_id=device_id,
-                upf_port=upf_port,
-                edn_port=edn_port,
-                udp_port=int(rule["udp_port"]),
-                queue_id=int(rule["queue_id"]),
-                priority=int(rule["priority"]),
-            )
-            for rule in flow_rules
-        ]
+        desired_flows: List[Dict[str, Any]] = []
         desired_flows.append(
             self.build_forward_flow(
                 device_id=device_id,
@@ -473,6 +467,11 @@ class OnosClient:
                 "installed_flows": installed,
                 "existing_flows": already_present,
                 "dry_run": self.dry_run,
+                "scope": "forwarding_only",
+                "queue_operations_attempted": False,
+                "queue_operations_skipped": True,
+                "queue_operation_reason": queue_skip_reason,
+                "skipped_queue_rules": list(skipped_queue_rules or []),
             }
 
         for flow_payload in desired_flows:
@@ -502,6 +501,35 @@ class OnosClient:
             "edn_port": edn_port,
             "audits": audits,
             "installed_flows": installed,
+            "installed_forwarding_flows": installed,
             "existing_flows": already_present,
+            "existing_forwarding_flows": already_present,
             "dry_run": self.dry_run,
+            "scope": "forwarding_only",
+            "queue_operations_attempted": False,
+            "queue_operations_skipped": True,
+            "queue_operation_reason": queue_skip_reason,
+            "skipped_queue_rules": list(skipped_queue_rules or []),
         }
+
+    def ensure_slice_queue_flows(
+        self,
+        devices_path: str,
+        upf_port_name: str,
+        edn_port_name: str,
+        flow_rules: List[Dict[str, Any]],
+        base_forward_flow_priority: int,
+        reverse_flow_priority: int,
+        arp_flow_priority: int,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        return self.ensure_forwarding_flows(
+            devices_path=devices_path,
+            upf_port_name=upf_port_name,
+            edn_port_name=edn_port_name,
+            base_forward_flow_priority=base_forward_flow_priority,
+            reverse_flow_priority=reverse_flow_priority,
+            arp_flow_priority=arp_flow_priority,
+            force_refresh=force_refresh,
+            skipped_queue_rules=flow_rules,
+        )

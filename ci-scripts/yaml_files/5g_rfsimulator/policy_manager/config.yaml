@@ -1,7 +1,9 @@
 policy_manager:
   poll_interval_seconds: 5
   decision_cooldown_seconds: 10
-  dry_run_only: true
+  dry_run_only: false
+  metrics_http_host: 0.0.0.0
+  metrics_http_port: 8001
   telemetry_glob: closed_loop_telemetry_*.jsonl
   telemetry_dir: ../logs/telemetry
   log_dir: ../logs/policy
@@ -75,3 +77,4 @@ policy_manager:
       sla:
         min_delivery_ratio_percent: 98
         max_loss_percent: 2
+

@@ -50,6 +50,41 @@ check_flow_rule() {
   return 1
 }
 
+check_flow_packets_nonzero() {
+  local description="$1"
+  local priority="$2"
+  local in_port="$3"
+  local eth_marker="$4"
+  local out_port="$5"
+  local dump="$6"
+  local packets=0
+
+  while IFS= read -r line; do
+    [[ "${line}" == *"priority=${priority}"* ]] || continue
+    [[ "${line}" == *"in_port=${in_port}"* ]] || continue
+    [[ "${line}" == *"output:${out_port}"* ]] || continue
+    if [[ "${eth_marker}" == "arp" ]]; then
+      [[ "${line}" == *",arp,"* || "${line}" == *" arp,"* || "${line}" == *"dl_type=0x0806"* ]] || continue
+    else
+      [[ "${line}" == *",ip,"* || "${line}" == *" ip,"* || "${line}" == *"dl_type=0x0800"* ]] || continue
+    fi
+    if [[ "${line}" =~ n_packets=([0-9]+) ]]; then
+      packets="${BASH_REMATCH[1]}"
+    else
+      packets=0
+    fi
+    if (( packets > 0 )); then
+      pass "${description}"
+      return 0
+    fi
+    fail "${description}"
+    return 1
+  done <<< "${dump}"
+
+  fail "${description}"
+  return 1
+}
+
 echo "== Ext-DN readiness =="
 if docker exec "${EXT_DN_CONTAINER_NAME}" bash -lc "
 set -euo pipefail
@@ -215,6 +250,28 @@ nsenter -t \"\${upf_pid}\" -n -- ping -I '${UPF_N6_IF}' -c 2 -W 1 '${EXT_DN_TARG
 else
   warn "Skipping N6 ping because OVS has no forwarding flows yet."
 fi
+
+echo
+echo "== Post-probe OVS counters =="
+POST_PROBE_FLOW_DUMP="$(docker exec "${OVS_CONTAINER_NAME}" ovs-ofctl -O OpenFlow13 dump-flows "${OVS_BRIDGE_NAME}")"
+POST_PROBE_PORT_DUMP="$(docker exec "${OVS_CONTAINER_NAME}" ovs-ofctl -O OpenFlow13 dump-ports "${OVS_BRIDGE_NAME}")"
+echo "${POST_PROBE_FLOW_DUMP}"
+echo
+echo "${POST_PROBE_PORT_DUMP}"
+check_flow_packets_nonzero \
+  "IPv4 packets from ${OVS_UPF_PORT_NAME} to ${OVS_EDN_PORT_NAME} increment after the N6 probe." \
+  "${N6_BASE_FORWARD_PRIORITY}" \
+  "${UPF_OFPORT}" \
+  "ip" \
+  "${EDN_OFPORT}" \
+  "${POST_PROBE_FLOW_DUMP}"
+check_flow_packets_nonzero \
+  "IPv4 packets from ${OVS_EDN_PORT_NAME} to ${OVS_UPF_PORT_NAME} increment after the N6 probe." \
+  "${N6_BASE_FORWARD_PRIORITY}" \
+  "${EDN_OFPORT}" \
+  "ip" \
+  "${UPF_OFPORT}" \
+  "${POST_PROBE_FLOW_DUMP}"
 
 if (( FAILURES > 0 )); then
   echo

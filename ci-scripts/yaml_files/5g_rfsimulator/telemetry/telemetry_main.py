@@ -36,7 +36,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_argument_parser()
     args = parser.parse_args()
-    scheduler = TelemetryScheduler(Path(args.config))
+    config_path = Path(args.config)
+    try:
+        scheduler = TelemetryScheduler(config_path)
+    except Exception as exc:
+        print(f"[telemetry][ERROR] failed to load config {config_path}: {exc}")
+        return 1
     exporter = TelemetryPrometheusExporter(
         metrics_http_host=scheduler.metrics_http_host,
         metrics_http_port=scheduler.metrics_http_port,

@@ -13,8 +13,16 @@ from policy_manager.decision_engine import DecisionEngine
 from policy_manager.models import PolicyCycle
 from policy_manager.onos_client import OnosClient
 from policy_manager.ovs_client import OvsClient
+from policy_manager.prometheus_exporter import PolicyPrometheusExporter
 from policy_manager.telemetry_reader import TelemetryReader
-from policy_manager.utils import append_csv_row, append_jsonl, ensure_directory, profile_signature, utc_timestamp
+from policy_manager.utils import (
+    append_csv_row,
+    append_jsonl,
+    coerce_bool,
+    ensure_directory,
+    profile_signature,
+    utc_timestamp,
+)
 
 
 CSV_FIELDS = [
@@ -50,8 +58,23 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_argument_parser().parse_args()
     config_path = Path(args.config).resolve()
-    config = load_policy_config(config_path)
-    dry_run_only = True if args.dry_run else False if args.active else bool(config["dry_run_only"])
+    try:
+        config = load_policy_config(config_path)
+    except Exception as exc:
+        print(f"[policy][ERROR] failed to load config {config_path}: {exc}")
+        return 1
+    mode_source = "cli(--dry-run)" if args.dry_run else "cli(--active)" if args.active else "config"
+    dry_run_only = (
+        True
+        if args.dry_run
+        else False
+        if args.active
+        else coerce_bool(config["dry_run_only"], field_name="policy_manager.dry_run_only")
+    )
+    exporter = PolicyPrometheusExporter(
+        metrics_http_host=str(config["metrics_http_host"]),
+        metrics_http_port=int(config["metrics_http_port"]),
+    )
 
     telemetry_reader = TelemetryReader(
         telemetry_dir=Path(str(config["telemetry_dir"])),
@@ -69,6 +92,7 @@ def main() -> int:
     ovs_cfg = dict(config["ovs"])
     ovs_client = OvsClient(
         container_name=str(ovs_cfg["container_name"]),
+        bridge_name=str(ovs_cfg["bridge_name"]),
         egress_port_name=str(ovs_cfg["egress_port_name"]),
         dry_run_only=dry_run_only,
     )
@@ -83,9 +107,20 @@ def main() -> int:
 
     print(f"[policy] config={config_path}")
     print(f"[policy] mode={'dry-run' if dry_run_only else 'active'}")
+    print(f"[policy] mode_source={mode_source}")
+    print(f"[policy] dry_run_only={str(dry_run_only).lower()}")
     print(f"[policy] telemetry_dir={config['telemetry_dir']}")
     print(f"[policy] decisions_jsonl={jsonl_path}")
     print(f"[policy] decisions_csv={csv_path}")
+    try:
+        exporter.start()
+    except RuntimeError as exc:
+        print(f"[policy][ERROR] {exc}")
+        return 1
+    print(
+        "[policy] Policy Manager metrics endpoint listening on "
+        f"{exporter.metrics_bind_label}"
+    )
 
     while True:
         snapshot = telemetry_reader.read_latest_snapshot()
@@ -112,17 +147,17 @@ def main() -> int:
         if not dry_run_only:
             cooldown_seconds = float(config["decision_cooldown_seconds"])
             if target_signature != last_applied_signature and (time.monotonic() - last_apply_monotonic) >= cooldown_seconds:
+                slice_flow_rules = [
+                    {
+                        "name": slice_name,
+                        "udp_port": int(slice_cfg["udp_port"]),
+                        "queue_id": int(slice_cfg["queue_id"]),
+                        "priority": _default_flow_priority(slice_name),
+                    }
+                    for slice_name, slice_cfg in dict(config["slices"]).items()
+                ]
                 onos_result = {}
                 if bool(config["ensure_onos_slice_flows"]):
-                    slice_flow_rules = [
-                        {
-                            "name": slice_name,
-                            "udp_port": int(slice_cfg["udp_port"]),
-                            "queue_id": int(slice_cfg["queue_id"]),
-                            "priority": _default_flow_priority(slice_name),
-                        }
-                        for slice_name, slice_cfg in dict(config["slices"]).items()
-                    ]
                     onos_result = onos_client.ensure_baseline_slice_flows(
                         devices_path=str(onos_cfg["devices_path"]),
                         upf_port_name=str(onos_cfg["upf_port_name"]),
@@ -133,15 +168,47 @@ def main() -> int:
                         arp_flow_priority=45000,
                         force_refresh=bool(config["force_onos_flow_refresh"]),
                     )
-                ovs_result = ovs_client.apply_queue_profile(target_profile)
-                applied = bool(ovs_result.get("ok")) and (not onos_result or bool(onos_result.get("ok")))
+                ovs_qos_result = ovs_client.apply_queue_profile(target_profile)
+                ovs_queue_result = ovs_client.ensure_slice_queue_assignment_flows(
+                    upf_port_name=str(onos_cfg["upf_port_name"]),
+                    slice_flow_rules=slice_flow_rules,
+                    force_refresh=bool(config["force_onos_flow_refresh"]),
+                )
+                ovs_result = {
+                    "ok": bool(ovs_qos_result.get("ok")) and bool(ovs_queue_result.get("ok")),
+                    "qos_result": ovs_qos_result,
+                    "queue_assignment_result": ovs_queue_result,
+                }
+                onos_ok = not onos_result or bool(onos_result.get("ok"))
+                applied = bool(ovs_result.get("ok")) and onos_ok
+                if applied:
+                    reason = "OVS QoS updated and OVS queue assignment flows were ensured."
+                    if onos_result:
+                        reason += " ONOS forwarding flows are present."
+                    if onos_result.get("queue_operations_skipped"):
+                        reason += " Unsupported ONOS queue operations were skipped."
+                elif not ovs_qos_result.get("ok"):
+                    reason = "OVS QoS profile update failed."
+                elif not ovs_queue_result.get("ok"):
+                    reason = "OVS queue assignment flow update failed."
+                elif onos_result and not onos_result.get("ok"):
+                    reason = "ONOS forwarding flow refresh failed."
+                else:
+                    reason = "enforcement call failed"
                 enforcement_result = {
                     "applied": applied,
                     "mode": "active",
                     "onos": onos_result,
                     "ovs": ovs_result,
-                    "reason": "applied target profile" if applied else "enforcement call failed",
+                    "reason": reason,
                 }
+                print(
+                    "[policy] "
+                    f"onos_forwarding_ok={onos_ok} "
+                    f"ovs_qos_ok={bool(ovs_qos_result.get('ok'))} "
+                    f"ovs_queue_assignment_ok={bool(ovs_queue_result.get('ok'))} "
+                    f"onos_queue_ops_skipped={bool(onos_result.get('queue_operations_skipped'))}"
+                )
                 if applied:
                     last_applied_signature = target_signature
                     last_apply_monotonic = time.monotonic()
@@ -166,6 +233,15 @@ def main() -> int:
             "event_type": "policy_cycle",
             **cycle.to_dict(),
         }
+        try:
+            exporter.update_cycle(
+                cycle_timestamp=cycle.timestamp,
+                dry_run_only=dry_run_only,
+                decisions=decisions,
+                enforcement_result=enforcement_result,
+            )
+        except Exception as exc:
+            print(f"[policy][WARN] failed to update Prometheus metrics: {exc}")
         append_jsonl(jsonl_path, payload)
         append_csv_row(
             csv_path,

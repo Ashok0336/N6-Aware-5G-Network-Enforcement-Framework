@@ -10,6 +10,7 @@ START_POLICY_MANAGER=true
 START_ENFORCEMENT_MANAGER=true
 MODE_ARG=""
 MODE_LABEL=""
+POLICY_MODE_ARG=""
 
 usage() {
   cat <<'EOF'
@@ -85,10 +86,23 @@ if yaml is not None:
 else:
     config = json.loads(raw_text)
 
+def parse_bool(value, field_name):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1, 0.0, 1.0):
+        return bool(int(value))
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be boolean, got {value!r}")
+
 enforcement = config.get("enforcement", {})
 policy_log_dir = (config_path.parent / enforcement.get("policy_log_dir", "../logs/policy")).resolve()
 enforcement_log_dir = (config_path.parent / enforcement.get("log_dir", "../logs/enforcement")).resolve()
-default_dry_run = bool(enforcement.get("dry_run", True))
+default_dry_run = parse_bool(enforcement.get("dry_run", True), "enforcement.dry_run")
 print(policy_log_dir)
 print(enforcement_log_dir)
 print("true" if default_dry_run else "false")
@@ -109,6 +123,12 @@ if [[ -z "$MODE_ARG" ]]; then
     MODE_ARG="--live"
     MODE_LABEL="live"
   fi
+fi
+
+if [[ "$MODE_ARG" == "--dry-run" ]]; then
+  POLICY_MODE_ARG="--dry-run"
+else
+  POLICY_MODE_ARG="--active"
 fi
 
 echo "[adaptive-control] Policy config: $POLICY_CONFIG_PATH"
@@ -134,7 +154,7 @@ trap cleanup INT TERM
 
 if [[ "$START_POLICY_MANAGER" == "true" ]]; then
   echo "[adaptive-control] Starting policy manager..."
-  python3 "$POLICY_MANAGER_PATH" --config "$POLICY_CONFIG_PATH" &
+  python3 "$POLICY_MANAGER_PATH" --config "$POLICY_CONFIG_PATH" "$POLICY_MODE_ARG" &
   POLICY_PID=$!
   PIDS+=("$POLICY_PID")
   echo "[adaptive-control] policy_manager.py pid=$POLICY_PID"

@@ -7,13 +7,187 @@ from policy_manager.utils import parse_ovs_map, profile_signature, run_command
 
 
 class OvsClient:
-    def __init__(self, container_name: str, egress_port_name: str, dry_run_only: bool = True) -> None:
+    def __init__(
+        self,
+        container_name: str,
+        bridge_name: str,
+        egress_port_name: str,
+        dry_run_only: bool = True,
+    ) -> None:
         self.container_name = container_name
+        self.bridge_name = bridge_name
         self.egress_port_name = egress_port_name
         self.dry_run_only = dry_run_only
 
     def docker_exec(self, *args: str) -> Dict[str, Any]:
         return run_command(["docker", "exec", self.container_name, *args], timeout_seconds=15)
+
+    def get_interface_ofport(self, port_name: str) -> Dict[str, Any]:
+        result = self.docker_exec("ovs-vsctl", "get", "interface", port_name, "ofport")
+        if not result["ok"]:
+            return result
+        raw_value = str(result.get("stdout", "")).strip().strip('"')
+        if raw_value in {"", "[]", "{}"}:
+            return {"ok": False, "error": f"Could not resolve OpenFlow port number for {port_name}."}
+        try:
+            ofport = str(int(raw_value))
+        except ValueError:
+            return {"ok": False, "error": f"Invalid OpenFlow port value for {port_name}: {raw_value}"}
+        return {"ok": True, "ofport": ofport}
+
+    def dump_flows(self) -> Dict[str, Any]:
+        return self.docker_exec("ovs-ofctl", "-O", "OpenFlow13", "dump-flows", self.bridge_name)
+
+    def ensure_slice_queue_assignment_flows(
+        self,
+        *,
+        upf_port_name: str,
+        slice_flow_rules: list[Dict[str, Any]],
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        upf_port_result = self.get_interface_ofport(upf_port_name)
+        if not upf_port_result["ok"]:
+            if self.dry_run_only:
+                upf_port_result = {"ok": True, "ofport": f"<ofport:{upf_port_name}>"}
+            else:
+                return {
+                    "ok": False,
+                    "scope": "queue_assignment",
+                    "error": upf_port_result.get("error", "Failed to resolve the UPF OpenFlow port."),
+                }
+        edn_port_result = self.get_interface_ofport(self.egress_port_name)
+        if not edn_port_result["ok"]:
+            if self.dry_run_only:
+                edn_port_result = {"ok": True, "ofport": f"<ofport:{self.egress_port_name}>"}
+            else:
+                return {
+                    "ok": False,
+                    "scope": "queue_assignment",
+                    "error": edn_port_result.get("error", "Failed to resolve the EDN OpenFlow port."),
+                }
+
+        upf_ofport = str(upf_port_result["ofport"])
+        edn_ofport = str(edn_port_result["ofport"])
+        dump_result = None if self.dry_run_only else self.dump_flows()
+        if dump_result is not None and not dump_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "queue_assignment",
+                "error": dump_result.get("error", "Failed to inspect current OVS flows."),
+                "result": dump_result,
+            }
+
+        existing_lines = str((dump_result or {}).get("stdout", "")).splitlines()
+        planned_commands: list[str] = []
+        command_results: list[Dict[str, Any]] = []
+        installed_flows: list[Dict[str, Any]] = []
+        existing_flows: list[Dict[str, Any]] = []
+        errors: list[str] = []
+
+        for rule in slice_flow_rules:
+            udp_port = int(rule["udp_port"])
+            queue_id = int(rule["queue_id"])
+            priority = int(rule["priority"])
+            selector_tokens = [
+                f"priority={priority}",
+                f"in_port={upf_ofport}",
+                "udp",
+                f"tp_dst={udp_port}",
+            ]
+            action_token = f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            selector_matches = [
+                line for line in existing_lines if all(token in line for token in selector_tokens)
+            ]
+            exact_exists = any(action_token in line for line in selector_matches)
+            conflicting_exists = any(action_token not in line for line in selector_matches)
+            if exact_exists and not conflicting_exists and not force_refresh:
+                existing_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+
+            selector = f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port}"
+            flow_definition = (
+                f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port},"
+                f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            )
+            delete_command = [
+                "docker",
+                "exec",
+                self.container_name,
+                "ovs-ofctl",
+                "-O",
+                "OpenFlow13",
+                "--strict",
+                "del-flows",
+                self.bridge_name,
+                selector,
+            ]
+            add_command = [
+                "docker",
+                "exec",
+                self.container_name,
+                "ovs-ofctl",
+                "-O",
+                "OpenFlow13",
+                "add-flow",
+                self.bridge_name,
+                flow_definition,
+            ]
+
+            if self.dry_run_only:
+                planned_commands.append(" ".join(delete_command))
+                planned_commands.append(" ".join(add_command))
+                installed_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+
+            delete_result = run_command(delete_command, timeout_seconds=15)
+            add_result = run_command(add_command, timeout_seconds=15)
+            command_results.extend([delete_result, add_result])
+            if add_result["ok"]:
+                installed_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+            errors.append(add_result.get("error", "OVS queue assignment flow update failed."))
+
+        result: Dict[str, Any] = {
+            "ok": not errors,
+            "scope": "queue_assignment",
+            "bridge_name": self.bridge_name,
+            "upf_ofport": upf_ofport,
+            "edn_ofport": edn_ofport,
+            "installed_flows": installed_flows,
+            "existing_flows": existing_flows,
+            "dry_run": self.dry_run_only,
+            "error": "; ".join(errors),
+        }
+        if self.dry_run_only:
+            result["planned_commands"] = planned_commands
+            result["planned_only"] = True
+        else:
+            result["results"] = command_results
+        return result
 
     def get_port_qos_uuid(self) -> Dict[str, Any]:
         result = self.docker_exec("ovs-vsctl", "get", "port", self.egress_port_name, "qos")

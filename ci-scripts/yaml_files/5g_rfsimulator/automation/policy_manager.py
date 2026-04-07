@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dry-run Slice Policy Manager for threshold-based policy recommendations only."""
+"""Slice Policy Manager for threshold-based policy recommendations."""
 
 from __future__ import annotations
 
@@ -110,6 +110,22 @@ def to_float(value: Any) -> Optional[float]:
     return None
 
 
+def coerce_bool(value: Any, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, float) and value in {0.0, 1.0}:
+        return bool(int(value))
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean value, got {value!r}.")
+
+
 def prometheus_value(value: Any) -> float:
     numeric = to_float(value)
     if numeric is None:
@@ -205,6 +221,13 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
         },
     )
     config = apply_service_mapping(base_dir, config)
+    enforcement = dict(config.get("enforcement", {}))
+    enforcement.setdefault("dry_run", True)
+    enforcement["dry_run"] = coerce_bool(
+        enforcement["dry_run"],
+        field_name="enforcement.dry_run",
+    )
+    config["enforcement"] = enforcement
 
     if env_metrics_http_host:
         config["metrics_http_host"] = env_metrics_http_host
@@ -215,7 +238,10 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     config["metrics_http_host"] = str(config["metrics_http_host"])
     config["metrics_http_port"] = int(config["metrics_http_port"])
     config["decision_cooldown_seconds"] = float(config["decision_cooldown_seconds"])
-    config["emit_unchanged_decisions"] = bool(config["emit_unchanged_decisions"])
+    config["emit_unchanged_decisions"] = coerce_bool(
+        config["emit_unchanged_decisions"],
+        field_name="emit_unchanged_decisions",
+    )
     config["unchanged_decision_log_interval_seconds"] = float(
         config["unchanged_decision_log_interval_seconds"]
     )
@@ -266,10 +292,22 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
 
 
 class PolicyManager:
-    def __init__(self, config_path: Path, config: Dict[str, Any], run_once: bool = False) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        config: Dict[str, Any],
+        run_once: bool = False,
+        dry_run_override: Optional[bool] = None,
+    ) -> None:
         self.config_path = config_path.resolve()
         self.config = config
         self.run_once = run_once
+        self.enforcement_cfg = dict(config.get("enforcement", {}))
+        self.dry_run_only = (
+            dry_run_override
+            if dry_run_override is not None
+            else self.enforcement_cfg["dry_run"]
+        )
         self.polling_interval_seconds = float(config["polling_interval_seconds"])
         self.metrics_http_host = str(config["metrics_http_host"])
         self.metrics_http_port = int(config["metrics_http_port"])
@@ -374,7 +412,7 @@ class PolicyManager:
             raise RuntimeError(
                 "prometheus_client is required for Prometheus metrics export."
             )
-        self.prometheus_policy_dry_run_mode.set(1.0)
+        self.prometheus_policy_dry_run_mode.set(1.0 if self.dry_run_only else 0.0)
         self.prometheus_slice_policy_state.clear()
         self.prometheus_policy_last_decision_timestamp.clear()
         for service_class, service_cfg in self.service_configs.items():
@@ -437,8 +475,13 @@ class PolicyManager:
     def run(self) -> int:
         self.install_signal_handlers()
         print_console("INFO", f"Using config: {self.config_path}")
+        print_console("INFO", f"Operating mode: {'dry-run' if self.dry_run_only else 'active'}")
         print_console("INFO", f"Watching telemetry directory: {self.telemetry_dir}")
-        print_console("INFO", f"Writing dry-run decisions to: {self.log_path}")
+        print_console(
+            "INFO",
+            "Policy decisions are emitted for enforcement_manager.py; OVS/ONOS updates happen in the enforcement layer.",
+        )
+        print_console("INFO", f"Writing policy decisions to: {self.log_path}")
 
         self.write_jsonl(
             {
@@ -447,9 +490,10 @@ class PolicyManager:
                 "run_id": self.run_id,
                 "config_path": str(self.config_path),
                 "log_path": str(self.log_path),
-                "dry_run_only": True,
-                "no_live_enforcement": True,
-                "next_step_note": "Future work can connect these recommendations to ONOS or OVS.",
+                "dry_run_only": self.dry_run_only,
+                "mode": "dry-run" if self.dry_run_only else "active",
+                "no_live_enforcement": self.dry_run_only,
+                "external_enforcement_only": True,
             }
         )
 
@@ -480,7 +524,8 @@ class PolicyManager:
                     "run_id": self.run_id,
                     "error": str(exc),
                     "traceback": trace,
-                    "dry_run_only": True,
+                    "dry_run_only": self.dry_run_only,
+                    "mode": "dry-run" if self.dry_run_only else "active",
                 }
             )
         finally:
@@ -496,7 +541,8 @@ class PolicyManager:
                     "run_id": self.run_id,
                     "last_telemetry_reference": self.last_processed_telemetry_reference,
                     "stopped_cleanly": exit_code == 0,
-                    "dry_run_only": True,
+                    "dry_run_only": self.dry_run_only,
+                    "mode": "dry-run" if self.dry_run_only else "active",
                 }
             )
             self.log_handle.close()
@@ -1313,8 +1359,8 @@ class PolicyManager:
         metrics = evaluation.get("evaluated_metrics", {})
         explanation = str(evaluation.get("explanation") or "")
 
-        # This manager is dry-run only. It never pushes to ONOS or OVS; it only
-        # stabilizes and logs recommendation state transitions for later wiring.
+        # This manager emits stabilized decisions for the external enforcement
+        # manager. It does not talk to ONOS or OVS directly.
         if state.get("last_emitted_action") is None:
             if target_state is None:
                 recommended_action = stable_action
@@ -1498,8 +1544,10 @@ class PolicyManager:
             "decision_state": decision_state,
             "is_new_decision": is_new_decision,
             "explanation": explanation,
-            "dry_run_only": True,
-            "no_live_enforcement": True,
+            "dry_run_only": self.dry_run_only,
+            "mode": "dry-run" if self.dry_run_only else "active",
+            "no_live_enforcement": self.dry_run_only,
+            "external_enforcement_only": True,
             "cooldown_status": cooldown_status,
         }
         service_state = self.service_state[service_class]
@@ -1513,7 +1561,7 @@ class PolicyManager:
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Dry-run Slice Policy Manager that reads telemetry JSONL and logs recommendations."
+        description="Slice Policy Manager that reads telemetry JSONL and logs recommendations."
     )
     parser.add_argument(
         "--config",
@@ -1530,6 +1578,19 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=f"Prometheus metrics HTTP port override. Default comes from config or {DEFAULT_METRICS_HTTP_PORT}.",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Force dry-run mode even if the config enables active enforcement.",
+    )
+    mode.add_argument(
+        "--active",
+        "--live",
+        dest="active",
+        action="store_true",
+        help="Force active/live mode even if the config defaults to dry-run.",
     )
     return parser
 
@@ -1552,7 +1613,20 @@ def main() -> int:
     if args.metrics_port is not None:
         config["metrics_http_port"] = int(args.metrics_port)
 
-    manager = PolicyManager(config_path=config_path, config=config, run_once=args.once)
+    dry_run_override: Optional[bool]
+    if args.dry_run:
+        dry_run_override = True
+    elif args.active:
+        dry_run_override = False
+    else:
+        dry_run_override = None
+
+    manager = PolicyManager(
+        config_path=config_path,
+        config=config,
+        run_once=args.once,
+        dry_run_override=dry_run_override,
+    )
     return manager.run()
 
 

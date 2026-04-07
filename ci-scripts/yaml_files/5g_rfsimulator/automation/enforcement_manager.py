@@ -101,6 +101,22 @@ def to_int(value: Any) -> Optional[int]:
     return None
 
 
+def coerce_bool(value: Any, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, float) and value in {0.0, 1.0}:
+        return bool(int(value))
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean value, got {value!r}.")
+
+
 def ensure_list(value: Any) -> List[Any]:
     if value is None:
         return []
@@ -344,14 +360,25 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     enforcement["log_dir"] = normalize_path(base_dir, str(enforcement["log_dir"]))
     enforcement["polling_interval_seconds"] = float(enforcement["polling_interval_seconds"])
     enforcement["cooldown_seconds"] = float(enforcement["cooldown_seconds"])
-    enforcement["dry_run"] = bool(enforcement["dry_run"])
-    enforcement["bootstrap_from_existing_policy_logs"] = bool(
-        enforcement["bootstrap_from_existing_policy_logs"]
+    enforcement["dry_run"] = coerce_bool(
+        enforcement["dry_run"],
+        field_name="enforcement.dry_run",
     )
-    enforcement["ensure_onos_slice_flows"] = bool(enforcement["ensure_onos_slice_flows"])
-    enforcement["force_onos_flow_refresh"] = bool(enforcement["force_onos_flow_refresh"])
-    enforcement["read_current_ovs_profile_on_startup"] = bool(
-        enforcement["read_current_ovs_profile_on_startup"]
+    enforcement["bootstrap_from_existing_policy_logs"] = coerce_bool(
+        enforcement["bootstrap_from_existing_policy_logs"],
+        field_name="enforcement.bootstrap_from_existing_policy_logs",
+    )
+    enforcement["ensure_onos_slice_flows"] = coerce_bool(
+        enforcement["ensure_onos_slice_flows"],
+        field_name="enforcement.ensure_onos_slice_flows",
+    )
+    enforcement["force_onos_flow_refresh"] = coerce_bool(
+        enforcement["force_onos_flow_refresh"],
+        field_name="enforcement.force_onos_flow_refresh",
+    )
+    enforcement["read_current_ovs_profile_on_startup"] = coerce_bool(
+        enforcement["read_current_ovs_profile_on_startup"],
+        field_name="enforcement.read_current_ovs_profile_on_startup",
     )
 
     onos_cfg["timeout_seconds"] = float(onos_cfg["timeout_seconds"])
@@ -401,11 +428,7 @@ class EnforcementManager:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.polling_interval_seconds = float(self.enforcement_cfg["polling_interval_seconds"])
         self.cooldown_seconds = float(self.enforcement_cfg["cooldown_seconds"])
-        self.dry_run = (
-            bool(dry_run_override)
-            if dry_run_override is not None
-            else bool(self.enforcement_cfg["dry_run"])
-        )
+        self.dry_run = dry_run_override if dry_run_override is not None else self.enforcement_cfg["dry_run"]
         self.default_action = str(self.config.get("default_policy_action", DEFAULT_ACTION_MAINTAIN))
         self.restore_action = str(self.config.get("restore_policy_action", DEFAULT_ACTION_RESTORE))
         self.service_classes = sorted(dict(self.config.get("service_classes", {})).keys())
@@ -484,6 +507,7 @@ class EnforcementManager:
         self.install_signal_handlers()
         print_console("INFO", f"Using config: {self.config_path}")
         print_console("INFO", f"Watching policy directory: {self.policy_log_dir}")
+        print_console("INFO", f"Operating mode: {self.mode_label()}")
         print_console(
             "INFO",
             f"Writing enforcement logs to: {self.log_path} (dry_run={self.dry_run})",
@@ -826,6 +850,7 @@ class EnforcementManager:
             return
 
         active_actions = self.compose_target_profile()[1]
+        previous_profile = copy.deepcopy(self.current_profile)
         flow_result = None
         if self.enforcement_cfg["ensure_onos_slice_flows"]:
             flow_result = self.onos_client.ensure_slice_queue_flows(
@@ -839,25 +864,42 @@ class EnforcementManager:
                 force_refresh=bool(self.enforcement_cfg["force_onos_flow_refresh"]),
             )
 
-        ovs_result = self.apply_queue_profile(self.pending_profile)
+        ovs_qos_result = self.apply_queue_profile(self.pending_profile)
+        ovs_queue_result = self.ensure_slice_queue_assignment_flows(
+            list(self.onos_cfg["slice_flow_rules"]),
+            force_refresh=bool(self.enforcement_cfg["force_onos_flow_refresh"]),
+        )
+        ovs_result = {
+            "ok": bool(ovs_qos_result.get("ok")) and bool(ovs_queue_result.get("ok")),
+            "qos_result": ovs_qos_result,
+            "queue_assignment_result": ovs_queue_result,
+            "previous_profile": previous_profile,
+        }
 
         status = "applied"
-        explanation = "Applied the composed queue profile driven by the latest policy-manager decisions."
+        explanation = (
+            "Applied the composed OVS queue profile and queue-assignment flows driven by the latest policy-manager decisions."
+        )
         if self.dry_run:
             status = "dry_run"
             explanation = (
-                "Dry-run mode is active, so the enforcement manager only planned the queue and ONOS actions."
+                "Dry-run mode is active, so the enforcement manager only planned the ONOS forwarding refresh, OVS QoS update, and OVS queue-assignment flows."
             )
-        elif not ovs_result["ok"]:
+        elif not ovs_qos_result["ok"]:
             status = "failed"
             explanation = "The OVS queue update failed, so the live queue profile was not changed."
+        elif not ovs_queue_result["ok"]:
+            status = "failed"
+            explanation = "The OVS queue-assignment flow update failed, so slice traffic was not fully steered into the target queues."
         elif flow_result is not None and not flow_result.get("ok", False):
-            status = "applied_with_warnings"
+            status = "failed"
+            explanation = "ONOS forwarding flow verification or refresh failed, so required forwarding guarantees were not confirmed."
+        elif flow_result is not None and flow_result.get("queue_operations_skipped"):
             explanation = (
-                "The OVS queue profile was updated, but ONOS flow verification or refresh reported a warning."
+                "Applied the OVS QoS profile and OVS queue-assignment flows. ONOS refreshed forwarding-only flows and skipped unsupported REST queue instructions."
             )
 
-        if ovs_result["ok"]:
+        if ovs_result["ok"] and (flow_result is None or flow_result.get("ok", False)):
             self.current_profile = copy.deepcopy(self.pending_profile)
             self.current_signature = self.pending_signature
             self.last_apply_monotonic = time.monotonic()
@@ -865,7 +907,7 @@ class EnforcementManager:
         self.log_enforcement_record(
             status=status,
             context=self.pending_context,
-            previous_profile=self.current_profile if not ovs_result["ok"] else ovs_result.get("previous_profile"),
+            previous_profile=previous_profile,
             target_profile=self.pending_profile,
             active_actions=active_actions,
             flow_result=flow_result,
@@ -874,11 +916,15 @@ class EnforcementManager:
             cooldown_status=None,
         )
 
-        if ovs_result["ok"]:
+        if ovs_result["ok"] and (flow_result is None or flow_result.get("ok", False)):
             print_console(
                 "INFO",
                 f"Applied enforcement profile (dry_run={self.dry_run}) with active actions: "
-                f"{active_actions or {'baseline': self.default_action}}",
+                f"{active_actions or {'baseline': self.default_action}}; "
+                f"onos_forwarding_ok={flow_result is None or bool(flow_result.get('ok'))}; "
+                f"ovs_qos_ok={bool(ovs_qos_result.get('ok'))}; "
+                f"ovs_queue_assignment_ok={bool(ovs_queue_result.get('ok'))}; "
+                f"onos_queue_ops_skipped={bool((flow_result or {}).get('queue_operations_skipped'))}",
             )
             self.pending_profile = None
             self.pending_signature = None
@@ -934,30 +980,39 @@ class EnforcementManager:
         operations: List[Dict[str, Any]] = []
         mode = self.mode_label()
 
+        ovs_entries: List[Dict[str, Any]] = []
         if isinstance(ovs_result, dict):
-            for command in ensure_list(ovs_result.get("planned_commands")):
+            for key in ("qos_result", "queue_assignment_result"):
+                if isinstance(ovs_result.get(key), dict):
+                    ovs_entries.append(ovs_result[key])
+            if not ovs_entries:
+                ovs_entries.append(ovs_result)
+
+        for ovs_entry in ovs_entries:
+            for command in ensure_list(ovs_entry.get("planned_commands")):
                 if command:
                     operations.append(
                         {
-                            "type": "ovs-vsctl",
+                            "type": "ovs-ofctl" if "ovs-ofctl" in str(command) else "ovs-vsctl",
                             "mode": mode,
                             "planned": True,
                             "command": str(command),
                         }
                     )
             result_entries = []
-            if isinstance(ovs_result.get("result"), dict):
-                result_entries.append(ovs_result["result"])
-            for item in ensure_list(ovs_result.get("results")):
+            if isinstance(ovs_entry.get("result"), dict):
+                result_entries.append(ovs_entry["result"])
+            for item in ensure_list(ovs_entry.get("results")):
                 if isinstance(item, dict):
                     result_entries.append(item)
             for result in result_entries:
+                command_text = " ".join(str(part) for part in ensure_list(result.get("command")))
                 operations.append(
                     {
-                        "type": "ovs-vsctl",
+                        "type": "ovs-ofctl" if "ovs-ofctl" in command_text else "ovs-vsctl",
                         "mode": mode,
                         "planned": False,
-                        "command": " ".join(str(part) for part in ensure_list(result.get("command"))),
+                        "command": command_text,
                         "return_code": result.get("return_code"),
                         "ok": result.get("ok"),
                         "stdout_excerpt": text_excerpt(result.get("stdout"), limit=240),
@@ -984,8 +1039,19 @@ class EnforcementManager:
                         "type": "onos-rest",
                         "mode": mode,
                         "planned": True,
-                        "operation": "ensure_slice_queue_flows",
+                        "operation": "ensure_forwarding_flows",
                         "details": flow_result.get("installed_flows", []),
+                    }
+                )
+            if flow_result.get("queue_operations_skipped"):
+                operations.append(
+                    {
+                        "type": "onos-rest",
+                        "mode": mode,
+                        "planned": bool(flow_result.get("dry_run")),
+                        "operation": "queue_operations_skipped",
+                        "details": flow_result.get("skipped_queue_rules", []),
+                        "reason": flow_result.get("queue_operation_reason"),
                     }
                 )
         if not operations:
@@ -1268,6 +1334,171 @@ class EnforcementManager:
             return self.create_queue_profile(target_profile)
         queue_uuid_map = parse_ovs_map(queue_map_result["stdout"])
         return self.update_existing_queue_profile(target_profile, qos_uuid, queue_uuid_map)
+
+    def get_interface_ofport(self, port_name: str) -> Dict[str, Any]:
+        result = self.docker_exec("ovs-vsctl", "get", "interface", port_name, "ofport")
+        if not result["ok"]:
+            return result
+        raw_value = str(result.get("stdout", "")).strip().strip('"')
+        if raw_value in {"", "[]", "{}"}:
+            return {"ok": False, "error": f"Could not resolve OpenFlow port number for {port_name}."}
+        try:
+            ofport = str(int(raw_value))
+        except ValueError:
+            return {"ok": False, "error": f"Invalid OpenFlow port value for {port_name}: {raw_value}"}
+        return {"ok": True, "ofport": ofport}
+
+    def dump_openflow_flows(self) -> Dict[str, Any]:
+        return self.docker_exec("ovs-ofctl", "-O", "OpenFlow13", "dump-flows", str(self.ovs_cfg["bridge_name"]))
+
+    def ensure_slice_queue_assignment_flows(
+        self,
+        slice_flow_rules: List[Dict[str, Any]],
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        upf_port_result = self.get_interface_ofport(str(self.onos_cfg["upf_port_name"]))
+        if not upf_port_result["ok"]:
+            if self.dry_run:
+                upf_port_result = {"ok": True, "ofport": f"<ofport:{self.onos_cfg['upf_port_name']}>"}
+            else:
+                return {
+                    "ok": False,
+                    "scope": "queue_assignment",
+                    "error": upf_port_result.get("error", "Failed to resolve the UPF OpenFlow port."),
+                }
+        edn_port_result = self.get_interface_ofport(str(self.ovs_cfg["egress_port_name"]))
+        if not edn_port_result["ok"]:
+            if self.dry_run:
+                edn_port_result = {"ok": True, "ofport": f"<ofport:{self.ovs_cfg['egress_port_name']}>"}
+            else:
+                return {
+                    "ok": False,
+                    "scope": "queue_assignment",
+                    "error": edn_port_result.get("error", "Failed to resolve the EDN OpenFlow port."),
+                }
+
+        upf_ofport = str(upf_port_result["ofport"])
+        edn_ofport = str(edn_port_result["ofport"])
+        dump_result = None if self.dry_run else self.dump_openflow_flows()
+        if dump_result is not None and not dump_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "queue_assignment",
+                "error": dump_result.get("error", "Failed to inspect current OVS flows."),
+                "result": dump_result,
+            }
+
+        existing_lines = str((dump_result or {}).get("stdout", "")).splitlines()
+        planned_commands: List[str] = []
+        results: List[Dict[str, Any]] = []
+        installed_flows: List[Dict[str, Any]] = []
+        existing_flows: List[Dict[str, Any]] = []
+        errors: List[str] = []
+
+        for rule in slice_flow_rules:
+            udp_port = int(rule["udp_port"])
+            queue_id = int(rule["queue_id"])
+            priority = int(rule["priority"])
+            selector_tokens = [
+                f"priority={priority}",
+                f"in_port={upf_ofport}",
+                "udp",
+                f"tp_dst={udp_port}",
+            ]
+            action_token = f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            selector_matches = [
+                line for line in existing_lines if all(token in line for token in selector_tokens)
+            ]
+            exact_exists = any(action_token in line for line in selector_matches)
+            conflicting_exists = any(action_token not in line for line in selector_matches)
+            if exact_exists and not conflicting_exists and not force_refresh:
+                existing_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+
+            selector = f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port}"
+            flow_definition = (
+                f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port},"
+                f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            )
+            delete_command = [
+                "docker",
+                "exec",
+                str(self.ovs_cfg["container_name"]),
+                "ovs-ofctl",
+                "-O",
+                "OpenFlow13",
+                "--strict",
+                "del-flows",
+                str(self.ovs_cfg["bridge_name"]),
+                selector,
+            ]
+            add_command = [
+                "docker",
+                "exec",
+                str(self.ovs_cfg["container_name"]),
+                "ovs-ofctl",
+                "-O",
+                "OpenFlow13",
+                "add-flow",
+                str(self.ovs_cfg["bridge_name"]),
+                flow_definition,
+            ]
+
+            if self.dry_run:
+                planned_commands.append(" ".join(delete_command))
+                planned_commands.append(" ".join(add_command))
+                installed_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+
+            delete_result = self.run_command(delete_command)
+            add_result = self.run_command(add_command)
+            results.extend([delete_result, add_result])
+            if add_result["ok"]:
+                installed_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "priority": priority,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                    }
+                )
+                continue
+            errors.append(add_result.get("error", "OVS queue assignment flow update failed."))
+
+        payload: Dict[str, Any] = {
+            "ok": not errors,
+            "scope": "queue_assignment",
+            "bridge_name": str(self.ovs_cfg["bridge_name"]),
+            "upf_ofport": upf_ofport,
+            "edn_ofport": edn_ofport,
+            "installed_flows": installed_flows,
+            "existing_flows": existing_flows,
+            "dry_run": self.dry_run,
+            "error": "; ".join(errors),
+        }
+        if self.dry_run:
+            payload["planned_commands"] = planned_commands
+            payload["planned_only"] = True
+        else:
+            payload["results"] = results
+        return payload
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
