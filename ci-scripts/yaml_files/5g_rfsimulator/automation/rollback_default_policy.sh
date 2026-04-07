@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENFORCEMENT_CONFIG_PATH="${ENFORCEMENT_CONFIG_PATH:-${SCRIPT_DIR}/enforcement_config.yaml}"
 ENFORCEMENT_MANAGER_PATH="${SCRIPT_DIR}/enforcement_manager.py"
-MODE_ARG="--live"
-MODE_LABEL="live"
+MODE_ARG=""
+MODE_LABEL=""
 
 usage() {
   cat <<'EOF'
@@ -64,16 +64,42 @@ if yaml is not None:
 else:
     config = json.loads(raw_text)
 
+def parse_bool(value, field_name):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1, 0.0, 1.0):
+        return bool(int(value))
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be boolean, got {value!r}")
+
 enforcement = config.get("enforcement", {})
 log_dir = (config_path.parent / enforcement.get("log_dir", "../logs/enforcement")).resolve()
 baseline = enforcement.get("queue_profiles", {}).get("baseline", {})
+dry_run = parse_bool(enforcement.get("dry_run", True), "enforcement.dry_run")
 print(log_dir)
 print(json.dumps(baseline, sort_keys=True))
+print("true" if dry_run else "false")
 PY
 )
 
 ENFORCEMENT_LOG_DIR="${CONFIG_VALUES[0]}"
 BASELINE_PROFILE="${CONFIG_VALUES[1]}"
+CONFIG_DRY_RUN="${CONFIG_VALUES[2]}"
+
+if [[ -z "$MODE_ARG" ]]; then
+  if [[ "$CONFIG_DRY_RUN" == "true" ]]; then
+    MODE_ARG="--dry-run"
+    MODE_LABEL="dry-run"
+  else
+    MODE_ARG="--live"
+    MODE_LABEL="live"
+  fi
+fi
 
 mkdir -p "$ENFORCEMENT_LOG_DIR"
 

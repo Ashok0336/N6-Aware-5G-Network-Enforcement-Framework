@@ -9,8 +9,8 @@ SERVICE_MAPPING_PATH="${SERVICE_MAPPING_PATH:-${SCRIPT_DIR}/service_mapping.yaml
 DURATION_SECONDS="${DURATION_SECONDS:-60}"
 RESULTS_ROOT="${RESULTS_ROOT:-${SCRIPT_DIR}/../logs/experiments}"
 RESULTS_DIR="${RESULTS_DIR:-}"
-MODE_ARG="--live"
-MODE_LABEL="live"
+MODE_ARG=""
+MODE_LABEL=""
 
 usage() {
   cat <<'EOF'
@@ -64,6 +64,51 @@ while IFS='=' read -r key value; do
   PATHS["$key"]="$value"
 done < <(generate_runtime_configs "$RESULTS_DIR" "adaptive" "$SERVICE_MAPPING_PATH")
 
+if [[ -z "$MODE_ARG" ]]; then
+  CONFIG_DRY_RUN="$(
+    python3 - "${PATHS[ENFORCEMENT_CONFIG]}" <<'PY'
+import json
+import pathlib
+import sys
+
+try:
+    import yaml  # type: ignore
+except ImportError:
+    yaml = None
+
+def parse_bool(value, field_name):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1, 0.0, 1.0):
+        return bool(int(value))
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be boolean, got {value!r}")
+
+config_path = pathlib.Path(sys.argv[1]).resolve()
+raw_text = config_path.read_text(encoding="utf-8")
+if yaml is not None:
+    config = yaml.safe_load(raw_text)
+else:
+    config = json.loads(raw_text)
+
+dry_run = parse_bool(config.get("enforcement", {}).get("dry_run", True), "enforcement.dry_run")
+print("true" if dry_run else "false")
+PY
+  )"
+  if [[ "$CONFIG_DRY_RUN" == "true" ]]; then
+    MODE_ARG="--dry-run"
+    MODE_LABEL="dry-run"
+  else
+    MODE_ARG="--live"
+    MODE_LABEL="live"
+  fi
+fi
+
 PIDS=()
 cleanup() {
   local code=$?
@@ -86,6 +131,7 @@ sleep 2
 
 python3 "${SCRIPT_DIR}/policy_manager.py" \
   --config "${PATHS[POLICY_CONFIG]}" \
+  "$MODE_ARG" \
   >"${RESULTS_DIR}/policy_manager_stdout.log" 2>&1 &
 PIDS+=("$!")
 sleep 2

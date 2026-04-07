@@ -97,7 +97,7 @@
     "log_dir": "../logs/enforcement",
     "polling_interval_seconds": 2,
     "cooldown_seconds": 10,
-    "dry_run": true,
+    "dry_run": false,
     "bootstrap_from_existing_policy_logs": true,
     "ensure_onos_slice_flows": true,
     "force_onos_flow_refresh": false,

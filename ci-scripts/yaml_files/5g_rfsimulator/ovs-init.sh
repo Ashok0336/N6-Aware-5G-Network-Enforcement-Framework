@@ -164,12 +164,48 @@ wait_for_ofport() {
   return 1
 }
 
-replace_flow() {
+flow_has_match_tokens() {
+  local line="$1"
+  shift
+  local token=""
+
+  for token in "$@"; do
+    [[ "${line}" == *"${token}"* ]] || return 1
+  done
+
+  return 0
+}
+
+flow_exists() {
+  local priority="$1"
+  local match="$2"
+  local actions="$3"
+  local flow_dump=""
+  local line=""
+  local match_tokens=()
+
+  flow_dump="$(ovs-ofctl -O OpenFlow13 dump-flows "$BR" 2>/dev/null || true)"
+  IFS=',' read -r -a match_tokens <<<"${match}"
+
+  while IFS= read -r line; do
+    [[ "${line}" == *"priority=${priority}"* ]] || continue
+    [[ "${line}" == *"actions=${actions}"* ]] || continue
+    flow_has_match_tokens "${line}" "${match_tokens[@]}" || continue
+    return 0
+  done <<<"${flow_dump}"
+
+  return 1
+}
+
+ensure_flow() {
   local priority="$1"
   local match="$2"
   local actions="$3"
 
-  ovs-ofctl -O OpenFlow13 --strict del-flows "$BR" "priority=${priority},${match}" >/dev/null 2>&1 || true
+  if flow_exists "${priority}" "${match}" "${actions}"; then
+    return 0
+  fi
+
   ovs-ofctl -O OpenFlow13 add-flow "$BR" \
     "cookie=${BOOTSTRAP_FLOW_COOKIE},priority=${priority},${match},actions=${actions}"
 }
@@ -183,16 +219,16 @@ ensure_bootstrap_forwarding() {
 
   # Keep LLDP/BDDP controller discovery intact, but override the default ARP punt
   # with direct two-port ARP forwarding so N6 neighbors can resolve after a clean boot.
-  replace_flow "${N6_ARP_FORWARD_PRIORITY}" "in_port=${upf_ofport},arp" "output:${edn_ofport}"
-  replace_flow "${N6_ARP_FORWARD_PRIORITY}" "in_port=${edn_ofport},arp" "output:${upf_ofport}"
+  ensure_flow "${N6_ARP_FORWARD_PRIORITY}" "in_port=${upf_ofport},arp" "output:${edn_ofport}"
+  ensure_flow "${N6_ARP_FORWARD_PRIORITY}" "in_port=${edn_ofport},arp" "output:${upf_ofport}"
 
   # Provide deterministic bootstrap IPv4 forwarding in both directions.
   # ONOS-installed slice queue flows use higher priorities and override these
   # generic rules when policy is present.
-  replace_flow "${N6_BASE_FORWARD_PRIORITY}" "in_port=${upf_ofport},ip" "output:${edn_ofport}"
-  replace_flow "${N6_BASE_FORWARD_PRIORITY}" "in_port=${edn_ofport},ip" "output:${upf_ofport}"
+  ensure_flow "${N6_BASE_FORWARD_PRIORITY}" "in_port=${upf_ofport},ip" "output:${edn_ofport}"
+  ensure_flow "${N6_BASE_FORWARD_PRIORITY}" "in_port=${edn_ofport},ip" "output:${upf_ofport}"
 
-  log "Installed bootstrap N6 forwarding flows: ARP priority=${N6_ARP_FORWARD_PRIORITY}, IPv4 priority=${N6_BASE_FORWARD_PRIORITY}."
+  log "Ensured bootstrap N6 forwarding flows without resetting matching counters."
 }
 
 ensure_qos() {

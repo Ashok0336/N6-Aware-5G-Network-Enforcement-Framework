@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-from policy_manager.utils import load_structured_file, normalize_path
+from policy_manager.utils import coerce_bool, load_structured_file, normalize_path
 
 
 def load_policy_config(config_path: Path) -> Dict[str, Any]:
@@ -18,16 +18,24 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
     onos_auth_parts = (os.getenv("ONOS_AUTH", "onos:rocks").split(":", 1) + ["rocks"])[:2]
     onos_username = os.getenv("ONOS_USERNAME", onos_auth_parts[0])
     onos_password = os.getenv("ONOS_PASSWORD", onos_auth_parts[1])
+    metrics_http_host = os.getenv("POLICY_MANAGER_METRICS_HOST", "").strip()
+    metrics_http_port = os.getenv("POLICY_MANAGER_METRICS_PORT", "").strip()
 
     cfg.setdefault("poll_interval_seconds", 5)
     cfg.setdefault("decision_cooldown_seconds", 10)
     cfg.setdefault("dry_run_only", True)
+    cfg.setdefault("metrics_http_host", "0.0.0.0")
+    cfg.setdefault("metrics_http_port", 8001)
     cfg.setdefault("telemetry_glob", "closed_loop_telemetry_*.jsonl")
     cfg.setdefault("telemetry_dir", "../logs/telemetry")
     cfg.setdefault("log_dir", "../logs/policy")
     cfg.setdefault("log_prefix", "closed_loop_policy")
     cfg.setdefault("ensure_onos_slice_flows", True)
     cfg.setdefault("force_onos_flow_refresh", False)
+    if metrics_http_host:
+        cfg["metrics_http_host"] = metrics_http_host
+    if metrics_http_port:
+        cfg["metrics_http_port"] = metrics_http_port
 
     onos_cfg = dict(cfg.get("onos", {}))
     onos_cfg.setdefault("base_url", onos_base_url)
@@ -49,9 +57,20 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
     cfg["log_dir"] = str(normalize_path(base_dir, cfg["log_dir"]))
     cfg["poll_interval_seconds"] = float(cfg["poll_interval_seconds"])
     cfg["decision_cooldown_seconds"] = float(cfg["decision_cooldown_seconds"])
-    cfg["dry_run_only"] = bool(cfg["dry_run_only"])
-    cfg["ensure_onos_slice_flows"] = bool(cfg["ensure_onos_slice_flows"])
-    cfg["force_onos_flow_refresh"] = bool(cfg["force_onos_flow_refresh"])
+    cfg["dry_run_only"] = coerce_bool(
+        cfg["dry_run_only"],
+        field_name="policy_manager.dry_run_only",
+    )
+    cfg["metrics_http_host"] = str(cfg["metrics_http_host"])
+    cfg["metrics_http_port"] = int(cfg["metrics_http_port"])
+    cfg["ensure_onos_slice_flows"] = coerce_bool(
+        cfg["ensure_onos_slice_flows"],
+        field_name="policy_manager.ensure_onos_slice_flows",
+    )
+    cfg["force_onos_flow_refresh"] = coerce_bool(
+        cfg["force_onos_flow_refresh"],
+        field_name="policy_manager.force_onos_flow_refresh",
+    )
 
     queue_profiles = dict(cfg.get("queue_profiles", {}))
     cfg["queue_profiles"] = queue_profiles

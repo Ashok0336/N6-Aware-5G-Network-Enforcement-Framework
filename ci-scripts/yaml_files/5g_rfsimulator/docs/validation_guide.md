@@ -76,5 +76,10 @@ If you want the validation broken into steps:
 ./scripts/show-openflow-flows.sh
 docker exec ovs ovs-vsctl list controller
 docker exec ovs ovs-ofctl -O OpenFlow13 dump-flows br-n6
+docker exec ovs ovs-ofctl -O OpenFlow13 dump-ports br-n6
+docker compose -f docker-compose.yaml --env-file .env exec -T ovs tcpdump -nn -i v-upf-host ip
+docker compose -f docker-compose.yaml --env-file .env exec -T ovs tcpdump -nn -i v-edn-host ip
 curl -s -u onos:rocks http://192.168.71.160:8181/onos/v1/devices | python3 -m json.tool
 ```
+
+`dump-ports br-n6` is the most stable low-level dataplane check because the port counters continue to increase even if there has not been a very recent packet on a specific OpenFlow rule. The forwarding readiness script also runs a live N6 probe and then re-reads the bridge flow counters so you can confirm that IPv4 packets crossed `br-n6`.
