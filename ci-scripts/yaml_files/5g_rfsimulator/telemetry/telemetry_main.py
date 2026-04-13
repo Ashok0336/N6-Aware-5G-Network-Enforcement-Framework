@@ -33,6 +33,24 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _format_ovs_slice_summary(snapshot: dict[str, object]) -> str:
+    slice_metrics = snapshot.get("slice_metrics", {})
+    if not isinstance(slice_metrics, dict):
+        return ""
+    parts = []
+    for slice_name in ("embb", "urllc", "mmtc"):
+        metrics = slice_metrics.get(slice_name, {})
+        if not isinstance(metrics, dict):
+            continue
+        parts.append(
+            f"{slice_name}:q{metrics.get('queue_id')}="
+            f"{metrics.get('queue_packets_total') or 0}pkts/"
+            f"{metrics.get('queue_bytes_total') or 0}B,"
+            f"flow={metrics.get('flow_packets_total') or 0}pkts"
+        )
+    return " ".join(parts)
+
+
 def main() -> int:
     parser = build_argument_parser()
     args = parser.parse_args()
@@ -71,7 +89,8 @@ def main() -> int:
                 "[telemetry] snapshot="
                 f"{snapshot['snapshot_index']} timestamp={snapshot['timestamp']} "
                 f"urllc_latency={snapshot['slice_metrics'].get('urllc', {}).get('latency_avg_ms')} "
-                f"embb_throughput={snapshot['slice_metrics'].get('embb', {}).get('throughput_bps')}"
+                f"embb_throughput={snapshot['slice_metrics'].get('embb', {}).get('throughput_bps')} "
+                f"{_format_ovs_slice_summary(snapshot)}"
             )
             iteration += 1
             if args.once or (args.iterations and iteration >= args.iterations):

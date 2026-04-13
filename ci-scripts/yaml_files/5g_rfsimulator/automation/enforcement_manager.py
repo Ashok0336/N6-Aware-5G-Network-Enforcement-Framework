@@ -443,6 +443,8 @@ class EnforcementManager:
         self.pending_hold_logged = False
         self.last_apply_monotonic: Optional[float] = None
         self.last_processed_policy_reference: Optional[Dict[str, Any]] = None
+        self.forwarding_continuity_confirmed = False
+        self.last_forwarding_state = "unknown"
 
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_id = f"enforcement-{stamp}-{os.getpid()}"
@@ -786,6 +788,12 @@ class EnforcementManager:
                 ovs_result=None,
                 explanation="The computed live queue profile already matches the current effective profile.",
                 cooldown_status=None,
+                forwarding_state=(
+                    self.last_forwarding_state if self.forwarding_continuity_confirmed else "not_rechecked"
+                ),
+                qos_state="not_reapplied",
+                queue_assignment_state="not_reapplied",
+                applied_reason="The computed live queue profile already matches the current effective profile.",
             )
             return
         self.pending_profile = profile
@@ -804,6 +812,59 @@ class EnforcementManager:
                 profile = merge_queue_profile(profile, overlay)
                 active_actions[service_class] = action
         return profile, active_actions
+
+    def _build_forwarding_skip_result(
+        self,
+        *,
+        flow_rules: List[Dict[str, Any]],
+        reason: str,
+    ) -> Dict[str, Any]:
+        return {
+            "ok": True,
+            "scope": "forwarding_only",
+            "refresh_skipped": True,
+            "queue_operations_attempted": False,
+            "queue_operations_skipped": True,
+            "queue_operation_reason": (
+                "ONOS REST queue instructions are skipped; OVS installs per-slice queue assignment flows directly."
+            ),
+            "skipped_queue_rules": list(flow_rules),
+            "error": "",
+            "reason": reason,
+        }
+
+    def _derive_forwarding_state(self, flow_result: Dict[str, Any]) -> str:
+        if flow_result.get("installed_forwarding_flows"):
+            return "freshly_installed"
+        if flow_result.get("existing_forwarding_flows"):
+            return "already_present"
+        return "verified"
+
+    def _compose_apply_explanation(
+        self,
+        *,
+        qos_ok: bool,
+        queue_assignment_ok: bool,
+        forwarding_state: str,
+    ) -> str:
+        if not qos_ok:
+            return "OVS QoS profile update failed."
+        if not queue_assignment_ok:
+            return "OVS queue-assignment flow update failed."
+        if forwarding_state == "missing":
+            return "Forwarding continuity could not be confirmed."
+        if forwarding_state == "freshly_installed":
+            return "OVS QoS and queue assignment succeeded, and ONOS forwarding flows were refreshed successfully."
+        if forwarding_state == "already_present":
+            return "OVS QoS and queue assignment succeeded, and forwarding continuity was already present."
+        if forwarding_state == "temporarily_unavailable_existing_baseline":
+            return (
+                "OVS QoS and queue assignment succeeded, and forwarding continuity was already present despite a temporary "
+                "ONOS refresh failure."
+            )
+        if forwarding_state == "not_required":
+            return "OVS QoS and queue assignment succeeded without requiring ONOS forwarding management."
+        return "OVS QoS and queue assignment succeeded, and forwarding continuity was verified."
 
     def reconcile_or_hold(self) -> None:
         if self.pending_profile is None or self.pending_signature is None:
@@ -840,6 +901,14 @@ class EnforcementManager:
                         "cooldown_seconds": self.cooldown_seconds,
                         "remaining_seconds": remaining,
                     },
+                    forwarding_state=(
+                        self.last_forwarding_state if self.forwarding_continuity_confirmed else "not_rechecked"
+                    ),
+                    qos_state="not_reapplied",
+                    queue_assignment_state="not_reapplied",
+                    applied_reason=(
+                        f"Deferring live enforcement update until the {self.cooldown_seconds:.1f}s cooldown expires."
+                    ),
                 )
             return
 
@@ -851,8 +920,15 @@ class EnforcementManager:
 
         active_actions = self.compose_target_profile()[1]
         previous_profile = copy.deepcopy(self.current_profile)
-        flow_result = None
-        if self.enforcement_cfg["ensure_onos_slice_flows"]:
+        force_onos_refresh = bool(self.enforcement_cfg["force_onos_flow_refresh"])
+        onos_enabled = bool(self.enforcement_cfg["ensure_onos_slice_flows"])
+        flow_result: Optional[Dict[str, Any]] = None
+        forwarding_check_result: Optional[Dict[str, Any]] = None
+        forwarding_state = "not_required"
+        forwarding_ready = True
+        onos_refresh_required = onos_enabled and (force_onos_refresh or not self.forwarding_continuity_confirmed)
+
+        if onos_refresh_required:
             flow_result = self.onos_client.ensure_slice_queue_flows(
                 devices_path=str(self.onos_cfg["devices_path"]),
                 upf_port_name=str(self.onos_cfg["upf_port_name"]),
@@ -861,13 +937,33 @@ class EnforcementManager:
                 base_forward_flow_priority=int(self.onos_cfg["base_forward_flow_priority"]),
                 reverse_flow_priority=int(self.onos_cfg["reverse_flow_priority"]),
                 arp_flow_priority=int(self.onos_cfg["arp_flow_priority"]),
-                force_refresh=bool(self.enforcement_cfg["force_onos_flow_refresh"]),
+                force_refresh=force_onos_refresh,
+            )
+            if flow_result.get("ok"):
+                forwarding_state = self._derive_forwarding_state(flow_result)
+            else:
+                forwarding_check_result = self.check_forwarding_continuity()
+                if forwarding_check_result.get("ok"):
+                    forwarding_state = "temporarily_unavailable_existing_baseline"
+                else:
+                    forwarding_state = "missing"
+                    forwarding_ready = False
+        elif onos_enabled:
+            flow_result = self._build_forwarding_skip_result(
+                flow_rules=list(self.onos_cfg["slice_flow_rules"]),
+                reason="Forwarding continuity was confirmed earlier, so ONOS refresh was skipped for this cycle.",
+            )
+            forwarding_state = "already_present"
+        else:
+            flow_result = self._build_forwarding_skip_result(
+                flow_rules=list(self.onos_cfg["slice_flow_rules"]),
+                reason="ONOS forwarding refresh is disabled in the enforcement configuration.",
             )
 
         ovs_qos_result = self.apply_queue_profile(self.pending_profile)
         ovs_queue_result = self.ensure_slice_queue_assignment_flows(
             list(self.onos_cfg["slice_flow_rules"]),
-            force_refresh=bool(self.enforcement_cfg["force_onos_flow_refresh"]),
+            force_refresh=force_onos_refresh,
         )
         ovs_result = {
             "ok": bool(ovs_qos_result.get("ok")) and bool(ovs_queue_result.get("ok")),
@@ -875,31 +971,34 @@ class EnforcementManager:
             "queue_assignment_result": ovs_queue_result,
             "previous_profile": previous_profile,
         }
+        qos_state = "applied" if ovs_qos_result.get("ok") else "failed"
+        queue_assignment_state = "ensured" if ovs_queue_result.get("ok") else "failed"
+        effective_applied = bool(ovs_result["ok"]) and forwarding_ready
+        applied_reason = self._compose_apply_explanation(
+            qos_ok=bool(ovs_qos_result.get("ok")),
+            queue_assignment_ok=bool(ovs_queue_result.get("ok")),
+            forwarding_state=forwarding_state,
+        )
 
         status = "applied"
-        explanation = (
-            "Applied the composed OVS queue profile and queue-assignment flows driven by the latest policy-manager decisions."
-        )
+        explanation = applied_reason
         if self.dry_run:
             status = "dry_run"
             explanation = (
-                "Dry-run mode is active, so the enforcement manager only planned the ONOS forwarding refresh, OVS QoS update, and OVS queue-assignment flows."
+                "Dry-run mode is active, so the enforcement manager only planned the ONOS forwarding refresh handling, "
+                f"OVS QoS update, and OVS queue-assignment flows. {applied_reason}"
             )
-        elif not ovs_qos_result["ok"]:
+        elif not effective_applied:
             status = "failed"
-            explanation = "The OVS queue update failed, so the live queue profile was not changed."
-        elif not ovs_queue_result["ok"]:
-            status = "failed"
-            explanation = "The OVS queue-assignment flow update failed, so slice traffic was not fully steered into the target queues."
-        elif flow_result is not None and not flow_result.get("ok", False):
-            status = "failed"
-            explanation = "ONOS forwarding flow verification or refresh failed, so required forwarding guarantees were not confirmed."
-        elif flow_result is not None and flow_result.get("queue_operations_skipped"):
-            explanation = (
-                "Applied the OVS QoS profile and OVS queue-assignment flows. ONOS refreshed forwarding-only flows and skipped unsupported REST queue instructions."
-            )
 
-        if ovs_result["ok"] and (flow_result is None or flow_result.get("ok", False)):
+        if forwarding_ready:
+            self.forwarding_continuity_confirmed = True
+            self.last_forwarding_state = forwarding_state
+        elif onos_enabled:
+            self.forwarding_continuity_confirmed = False
+            self.last_forwarding_state = forwarding_state
+
+        if effective_applied:
             self.current_profile = copy.deepcopy(self.pending_profile)
             self.current_signature = self.pending_signature
             self.last_apply_monotonic = time.monotonic()
@@ -914,14 +1013,19 @@ class EnforcementManager:
             ovs_result=ovs_result,
             explanation=explanation,
             cooldown_status=None,
+            forwarding_state=forwarding_state,
+            qos_state=qos_state,
+            queue_assignment_state=queue_assignment_state,
+            applied_reason=applied_reason,
+            forwarding_check_result=forwarding_check_result,
         )
 
-        if ovs_result["ok"] and (flow_result is None or flow_result.get("ok", False)):
+        if effective_applied:
             print_console(
                 "INFO",
                 f"Applied enforcement profile (dry_run={self.dry_run}) with active actions: "
                 f"{active_actions or {'baseline': self.default_action}}; "
-                f"onos_forwarding_ok={flow_result is None or bool(flow_result.get('ok'))}; "
+                f"forwarding_state={forwarding_state}; "
                 f"ovs_qos_ok={bool(ovs_qos_result.get('ok'))}; "
                 f"ovs_queue_assignment_ok={bool(ovs_queue_result.get('ok'))}; "
                 f"onos_queue_ops_skipped={bool((flow_result or {}).get('queue_operations_skipped'))}",
@@ -1076,6 +1180,11 @@ class EnforcementManager:
         ovs_result: Optional[Dict[str, Any]],
         explanation: str,
         cooldown_status: Optional[Dict[str, Any]],
+        forwarding_state: Optional[str] = None,
+        qos_state: Optional[str] = None,
+        queue_assignment_state: Optional[str] = None,
+        applied_reason: Optional[str] = None,
+        forwarding_check_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         target_service_classes = self.collect_target_service_classes(context, active_actions)
         action_names = self.collect_action_names(context, active_actions)
@@ -1113,6 +1222,11 @@ class EnforcementManager:
                 "operations": operations,
                 "onos_result": flow_result,
                 "ovs_result": ovs_result,
+                "forwarding_state": forwarding_state,
+                "qos_state": qos_state,
+                "queue_assignment_state": queue_assignment_state,
+                "applied_reason": applied_reason or explanation,
+                "forwarding_check_result": forwarding_check_result,
                 "explanation": explanation,
                 "dry_run": self.dry_run,
                 "cooldown_status": cooldown_status,
@@ -1350,6 +1464,84 @@ class EnforcementManager:
 
     def dump_openflow_flows(self) -> Dict[str, Any]:
         return self.docker_exec("ovs-ofctl", "-O", "OpenFlow13", "dump-flows", str(self.ovs_cfg["bridge_name"]))
+
+    def check_forwarding_continuity(self) -> Dict[str, Any]:
+        upf_port_result = self.get_interface_ofport(str(self.onos_cfg["upf_port_name"]))
+        if not upf_port_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": upf_port_result.get("error", "Failed to resolve the UPF OpenFlow port."),
+            }
+        edn_port_result = self.get_interface_ofport(str(self.ovs_cfg["egress_port_name"]))
+        if not edn_port_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": edn_port_result.get("error", "Failed to resolve the EDN OpenFlow port."),
+            }
+
+        dump_result = self.dump_openflow_flows()
+        if not dump_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": dump_result.get("error", "Failed to inspect current OVS forwarding flows."),
+                "result": dump_result,
+            }
+
+        upf_ofport = str(upf_port_result["ofport"])
+        edn_ofport = str(edn_port_result["ofport"])
+        existing_lines = str(dump_result.get("stdout", "")).splitlines()
+        checks = [
+            {
+                "name": "upf_to_edn_ipv4",
+                "selector_tokens": [f"in_port={upf_ofport}", "ip"],
+                "action_token": f"actions=output:{edn_ofport}",
+            },
+            {
+                "name": "edn_to_upf_ipv4",
+                "selector_tokens": [f"in_port={edn_ofport}", "ip"],
+                "action_token": f"actions=output:{upf_ofport}",
+            },
+            {
+                "name": "upf_to_edn_arp",
+                "selector_tokens": [f"in_port={upf_ofport}", "arp"],
+                "action_token": f"actions=output:{edn_ofport}",
+            },
+            {
+                "name": "edn_to_upf_arp",
+                "selector_tokens": [f"in_port={edn_ofport}", "arp"],
+                "action_token": f"actions=output:{upf_ofport}",
+            },
+        ]
+
+        missing: List[str] = []
+        for check in checks:
+            matching_line = next(
+                (
+                    line
+                    for line in existing_lines
+                    if all(token in line for token in check["selector_tokens"])
+                    and check["action_token"] in line
+                ),
+                "",
+            )
+            check["present"] = bool(matching_line)
+            if matching_line:
+                check["matching_flow"] = matching_line
+            else:
+                missing.append(str(check["name"]))
+
+        return {
+            "ok": not missing,
+            "scope": "forwarding_continuity",
+            "bridge_name": str(self.ovs_cfg["bridge_name"]),
+            "upf_ofport": upf_ofport,
+            "edn_ofport": edn_ofport,
+            "checks": checks,
+            "error": "" if not missing else f"Missing required forwarding continuity flows: {', '.join(missing)}.",
+        }
 
     def ensure_slice_queue_assignment_flows(
         self,

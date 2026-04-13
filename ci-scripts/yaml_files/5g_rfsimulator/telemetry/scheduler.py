@@ -48,6 +48,7 @@ class TelemetryScheduler:
         self.ovs_collector = OvsStatsCollector(
             dict(telemetry_cfg.get("ovs", {})),
             command_timeout_seconds=self.command_timeout_seconds,
+            slices=self.slices,
         )
         self.onos_collector = OnosStatsCollector(dict(telemetry_cfg.get("onos", {})))
         self.ping_collector = PingCollector(
@@ -112,7 +113,9 @@ class TelemetryScheduler:
 
         slice_metrics: Dict[str, Any] = {}
         slice_flows = dict(ovs.get("slice_flows", {}))
+        slice_flow_validation = dict(ovs.get("slice_flow_validation", {}))
         queue_stats = dict(ovs.get("queues", {}))
+        slice_queue_validation = dict(ovs.get("slice_queue_validation", {}))
         port_stats = dict(ovs.get("ports", {}))
         port_map = dict(ovs.get("port_name_to_ofport", {}))
         egress_port_name = str(self.ovs_cfg.get("egress_port_name", "v-edn-host"))
@@ -123,10 +126,11 @@ class TelemetryScheduler:
             udp_port = str(slice_cfg.get("udp_port"))
             queue_id = str(slice_cfg.get("queue_id"))
             iperf_metrics = dict(per_slice_iperf.get(slice_name, {}))
-            flow_metrics = dict(slice_flows.get(udp_port, {}))
+            flow_metrics = dict(slice_flow_validation.get(slice_name) or slice_flows.get(udp_port, {}))
             ping_metrics = dict(ping_by_slice.get(slice_name, {}))
-            queue_metrics = self._lookup_queue_metrics(
-                queue_stats, egress_port_name, egress_port_ofport, queue_id
+            queue_metrics = dict(
+                slice_queue_validation.get(slice_name)
+                or self._lookup_queue_metrics(queue_stats, egress_port_name, egress_port_ofport, queue_id)
             )
             egress_port_metrics = self._lookup_port_metrics(
                 port_stats, egress_port_name, egress_port_ofport
@@ -184,11 +188,19 @@ class TelemetryScheduler:
                 "sender_packet_rate_pps": sender_packet_rate_pps,
                 "sender_average_bitrate_bps": iperf_metrics.get("sender_average_bitrate_bps"),
                 "flow_packets_total": flow_metrics.get("packets_total"),
+                "flow_bytes_total": flow_metrics.get("bytes_total"),
                 "flow_packet_rate_pps": flow_packets_per_second,
                 "flow_throughput_bps": flow_metrics.get("throughput_bps"),
                 "queue_bytes_per_second": _to_float(queue_metrics.get("bytes_per_second")),
                 "queue_packets_per_second": queue_packets_per_second,
                 "queue_bytes_total": _to_float(queue_metrics.get("bytes_total")),
+                "queue_packets_total": _to_float(queue_metrics.get("packets_total")),
+                "flow_rule_present": bool(flow_metrics.get("rule_present")),
+                "flow_counter_nonzero": bool(flow_metrics.get("counters_nonzero")),
+                "flow_counter_increasing": bool(flow_metrics.get("counters_increasing")),
+                "queue_counter_nonzero": bool(queue_metrics.get("counters_nonzero")),
+                "queue_counter_increasing": bool(queue_metrics.get("counters_increasing")),
+                "queue_validation_status": queue_metrics.get("validation_status"),
                 "latency_avg_ms": ping_metrics.get("rtt_avg_ms"),
                 "latency_max_ms": ping_metrics.get("rtt_max_ms"),
                 "jitter_ms": ping_metrics.get("jitter_ms") or iperf_metrics.get("jitter_ms"),
@@ -205,8 +217,12 @@ class TelemetryScheduler:
                 "sources": {
                     "ping": ping_metrics.get("ok"),
                     "iperf": iperf_metrics.get("source"),
-                    "ovs_flow": bool(flow_metrics),
-                    "queue": bool(queue_metrics),
+                    "ovs_flow": bool(flow_metrics.get("rule_present"))
+                    or bool(flow_metrics.get("counters_nonzero"))
+                    or bool(flow_metrics.get("counters_increasing")),
+                    "queue": bool(queue_metrics.get("configured"))
+                    or bool(queue_metrics.get("counters_nonzero"))
+                    or bool(queue_metrics.get("counters_increasing")),
                     "throughput": throughput_source,
                     "delivery_ratio": delivery_ratio_source,
                 },

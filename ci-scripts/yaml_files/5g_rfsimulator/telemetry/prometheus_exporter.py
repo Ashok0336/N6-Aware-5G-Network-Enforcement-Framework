@@ -117,6 +117,16 @@ class TelemetryPrometheusExporter:
             "Observed OVS flow byte totals from the latest telemetry snapshot.",
             ["slice", "udp_port", "device_id"],
         )
+        self.prometheus_ovs_flow_packet_rate_pps = Gauge(
+            "ovs_flow_packet_rate_pps",
+            "Observed OVS flow packet rate in packets per second from the latest telemetry snapshot.",
+            ["slice", "udp_port", "device_id"],
+        )
+        self.prometheus_ovs_flow_throughput_bps = Gauge(
+            "ovs_flow_throughput_bps",
+            "Observed OVS flow throughput in bits per second from the latest telemetry snapshot.",
+            ["slice", "udp_port", "device_id"],
+        )
         self.prometheus_ovs_queue_bytes_total = Gauge(
             "ovs_queue_bytes_total",
             "Observed OVS queue byte totals from the latest telemetry snapshot.",
@@ -125,6 +135,16 @@ class TelemetryPrometheusExporter:
         self.prometheus_ovs_queue_packets_total = Gauge(
             "ovs_queue_packets_total",
             "Observed OVS queue packet totals from the latest telemetry snapshot.",
+            ["slice", "queue_id", "device_id"],
+        )
+        self.prometheus_ovs_queue_bytes_per_second = Gauge(
+            "ovs_queue_bytes_per_second",
+            "Observed OVS queue byte rate in bytes per second from the latest telemetry snapshot.",
+            ["slice", "queue_id", "device_id"],
+        )
+        self.prometheus_ovs_queue_packets_per_second = Gauge(
+            "ovs_queue_packets_per_second",
+            "Observed OVS queue packet rate in packets per second from the latest telemetry snapshot.",
             ["slice", "queue_id", "device_id"],
         )
         self.prometheus_container_cpu_percent = Gauge(
@@ -205,13 +225,21 @@ class TelemetryPrometheusExporter:
         device_id = self._resolve_device_id_label(snapshot)
         self.prometheus_ovs_flow_packets_total.clear()
         self.prometheus_ovs_flow_bytes_total.clear()
+        self.prometheus_ovs_flow_packet_rate_pps.clear()
+        self.prometheus_ovs_flow_throughput_bps.clear()
         self.prometheus_ovs_queue_bytes_total.clear()
         self.prometheus_ovs_queue_packets_total.clear()
+        self.prometheus_ovs_queue_bytes_per_second.clear()
+        self.prometheus_ovs_queue_packets_per_second.clear()
 
         flow_packets_total = 0.0
         flow_bytes_total = 0.0
+        flow_packet_rate_total = 0.0
+        flow_throughput_total = 0.0
         queue_bytes_total = 0.0
         queue_packets_total = 0.0
+        queue_bytes_rate_total = 0.0
+        queue_packets_rate_total = 0.0
 
         queue_totals = self._collect_slice_queue_totals(snapshot, slice_metrics)
         for slice_name, metrics in slice_metrics.items():
@@ -221,10 +249,16 @@ class TelemetryPrometheusExporter:
             queue_id = str(metrics.get("queue_id") or "unknown")
             flow_packets = _to_float(metrics.get("flow_packets_total"))
             flow_bytes = _to_float(metrics.get("flow_bytes_total"))
-            queue_bytes = _to_float(queue_totals.get(slice_name, {}).get("bytes_total"))
-            queue_packets = _to_float(queue_totals.get(slice_name, {}).get("packets_total"))
+            flow_packet_rate = _to_float(metrics.get("flow_packet_rate_pps"))
+            flow_throughput = _to_float(metrics.get("flow_throughput_bps"))
+            queue_bytes = _to_float(metrics.get("queue_bytes_total"))
+            queue_packets = _to_float(metrics.get("queue_packets_total"))
             if queue_bytes is None:
-                queue_bytes = _to_float(metrics.get("queue_bytes_total"))
+                queue_bytes = _to_float(queue_totals.get(slice_name, {}).get("bytes_total"))
+            if queue_packets is None:
+                queue_packets = _to_float(queue_totals.get(slice_name, {}).get("packets_total"))
+            queue_bytes_rate = _to_float(metrics.get("queue_bytes_per_second"))
+            queue_packets_rate = _to_float(metrics.get("queue_packets_per_second"))
 
             self.prometheus_ovs_flow_packets_total.labels(
                 slice=str(slice_name),
@@ -236,6 +270,16 @@ class TelemetryPrometheusExporter:
                 udp_port=udp_port,
                 device_id=device_id,
             ).set(_prometheus_value(flow_bytes))
+            self.prometheus_ovs_flow_packet_rate_pps.labels(
+                slice=str(slice_name),
+                udp_port=udp_port,
+                device_id=device_id,
+            ).set(_prometheus_value(flow_packet_rate))
+            self.prometheus_ovs_flow_throughput_bps.labels(
+                slice=str(slice_name),
+                udp_port=udp_port,
+                device_id=device_id,
+            ).set(_prometheus_value(flow_throughput))
             self.prometheus_ovs_queue_bytes_total.labels(
                 slice=str(slice_name),
                 queue_id=queue_id,
@@ -246,15 +290,33 @@ class TelemetryPrometheusExporter:
                 queue_id=queue_id,
                 device_id=device_id,
             ).set(_prometheus_value(queue_packets))
+            self.prometheus_ovs_queue_bytes_per_second.labels(
+                slice=str(slice_name),
+                queue_id=queue_id,
+                device_id=device_id,
+            ).set(_prometheus_value(queue_bytes_rate))
+            self.prometheus_ovs_queue_packets_per_second.labels(
+                slice=str(slice_name),
+                queue_id=queue_id,
+                device_id=device_id,
+            ).set(_prometheus_value(queue_packets_rate))
 
             if flow_packets is not None:
                 flow_packets_total += flow_packets
             if flow_bytes is not None:
                 flow_bytes_total += flow_bytes
+            if flow_packet_rate is not None:
+                flow_packet_rate_total += flow_packet_rate
+            if flow_throughput is not None:
+                flow_throughput_total += flow_throughput
             if queue_bytes is not None:
                 queue_bytes_total += queue_bytes
             if queue_packets is not None:
                 queue_packets_total += queue_packets
+            if queue_bytes_rate is not None:
+                queue_bytes_rate_total += queue_bytes_rate
+            if queue_packets_rate is not None:
+                queue_packets_rate_total += queue_packets_rate
 
         self.prometheus_ovs_flow_packets_total.labels(
             slice="all",
@@ -266,6 +328,16 @@ class TelemetryPrometheusExporter:
             udp_port="all",
             device_id=device_id,
         ).set(_prometheus_value(flow_bytes_total))
+        self.prometheus_ovs_flow_packet_rate_pps.labels(
+            slice="all",
+            udp_port="all",
+            device_id=device_id,
+        ).set(_prometheus_value(flow_packet_rate_total))
+        self.prometheus_ovs_flow_throughput_bps.labels(
+            slice="all",
+            udp_port="all",
+            device_id=device_id,
+        ).set(_prometheus_value(flow_throughput_total))
         self.prometheus_ovs_queue_bytes_total.labels(
             slice="all",
             queue_id="all",
@@ -276,6 +348,16 @@ class TelemetryPrometheusExporter:
             queue_id="all",
             device_id=device_id,
         ).set(_prometheus_value(queue_packets_total))
+        self.prometheus_ovs_queue_bytes_per_second.labels(
+            slice="all",
+            queue_id="all",
+            device_id=device_id,
+        ).set(_prometheus_value(queue_bytes_rate_total))
+        self.prometheus_ovs_queue_packets_per_second.labels(
+            slice="all",
+            queue_id="all",
+            device_id=device_id,
+        ).set(_prometheus_value(queue_packets_rate_total))
 
         self.prometheus_container_cpu_percent.clear()
         self.prometheus_container_memory_bytes.clear()

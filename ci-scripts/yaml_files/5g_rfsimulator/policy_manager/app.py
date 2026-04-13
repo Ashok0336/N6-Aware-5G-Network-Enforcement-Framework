@@ -6,7 +6,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from policy_manager.config import load_policy_config
 from policy_manager.decision_engine import DecisionEngine
@@ -104,6 +104,8 @@ def main() -> int:
     csv_path = log_dir / f"{log_prefix}_{stamp}.csv"
     last_applied_signature = ""
     last_apply_monotonic = 0.0
+    forwarding_continuity_confirmed = False
+    last_forwarding_state = "unknown"
 
     print(f"[policy] config={config_path}")
     print(f"[policy] mode={'dry-run' if dry_run_only else 'active'}")
@@ -141,6 +143,11 @@ def main() -> int:
             "mode": "dry-run" if dry_run_only else "active",
             "onos": {},
             "ovs": {},
+            "forwarding_state": "dry-run" if dry_run_only else "not_rechecked",
+            "qos_state": "planned_only" if dry_run_only else "not_reapplied",
+            "queue_assignment_state": "planned_only" if dry_run_only else "not_reapplied",
+            "forwarding_check_result": None,
+            "applied_reason": "dry_run_only is enabled." if dry_run_only else "profile unchanged or cooldown active.",
             "reason": "dry_run_only is enabled." if dry_run_only else "profile unchanged or cooldown active.",
         }
 
@@ -156,8 +163,15 @@ def main() -> int:
                     }
                     for slice_name, slice_cfg in dict(config["slices"]).items()
                 ]
-                onos_result = {}
-                if bool(config["ensure_onos_slice_flows"]):
+                force_onos_refresh = bool(config["force_onos_flow_refresh"])
+                onos_enabled = bool(config["ensure_onos_slice_flows"])
+                onos_result: Dict[str, Any] = {}
+                forwarding_check_result: Optional[Dict[str, Any]] = None
+                forwarding_state = "not_required"
+                forwarding_ready = True
+                onos_refresh_required = onos_enabled and (force_onos_refresh or not forwarding_continuity_confirmed)
+
+                if onos_refresh_required:
                     onos_result = onos_client.ensure_baseline_slice_flows(
                         devices_path=str(onos_cfg["devices_path"]),
                         upf_port_name=str(onos_cfg["upf_port_name"]),
@@ -166,54 +180,79 @@ def main() -> int:
                         base_forward_flow_priority=5000,
                         reverse_flow_priority=20000,
                         arp_flow_priority=45000,
-                        force_refresh=bool(config["force_onos_flow_refresh"]),
+                        force_refresh=force_onos_refresh,
                     )
+                    if onos_result.get("ok"):
+                        forwarding_state = _derive_forwarding_state(onos_result)
+                    else:
+                        forwarding_check_result = ovs_client.check_forwarding_continuity(
+                            upf_port_name=str(onos_cfg["upf_port_name"])
+                        )
+                        if forwarding_check_result.get("ok"):
+                            forwarding_state = "temporarily_unavailable_existing_baseline"
+                        else:
+                            forwarding_state = "missing"
+                            forwarding_ready = False
+                elif onos_enabled:
+                    onos_result = _build_forwarding_skip_result(
+                        slice_flow_rules=slice_flow_rules,
+                        reason="Forwarding continuity was confirmed earlier, so ONOS refresh was skipped for this cycle.",
+                    )
+                    forwarding_state = "already_present"
+
                 ovs_qos_result = ovs_client.apply_queue_profile(target_profile)
                 ovs_queue_result = ovs_client.ensure_slice_queue_assignment_flows(
                     upf_port_name=str(onos_cfg["upf_port_name"]),
                     slice_flow_rules=slice_flow_rules,
-                    force_refresh=bool(config["force_onos_flow_refresh"]),
+                    force_refresh=force_onos_refresh,
                 )
                 ovs_result = {
                     "ok": bool(ovs_qos_result.get("ok")) and bool(ovs_queue_result.get("ok")),
                     "qos_result": ovs_qos_result,
                     "queue_assignment_result": ovs_queue_result,
                 }
-                onos_ok = not onos_result or bool(onos_result.get("ok"))
-                applied = bool(ovs_result.get("ok")) and onos_ok
-                if applied:
-                    reason = "OVS QoS updated and OVS queue assignment flows were ensured."
-                    if onos_result:
-                        reason += " ONOS forwarding flows are present."
-                    if onos_result.get("queue_operations_skipped"):
-                        reason += " Unsupported ONOS queue operations were skipped."
-                elif not ovs_qos_result.get("ok"):
-                    reason = "OVS QoS profile update failed."
-                elif not ovs_queue_result.get("ok"):
-                    reason = "OVS queue assignment flow update failed."
-                elif onos_result and not onos_result.get("ok"):
-                    reason = "ONOS forwarding flow refresh failed."
-                else:
-                    reason = "enforcement call failed"
+                qos_state = "applied" if ovs_qos_result.get("ok") else "failed"
+                queue_assignment_state = "ensured" if ovs_queue_result.get("ok") else "failed"
+                applied = bool(ovs_result.get("ok")) and forwarding_ready
+                applied_reason = _compose_applied_reason(
+                    qos_ok=bool(ovs_qos_result.get("ok")),
+                    queue_assignment_ok=bool(ovs_queue_result.get("ok")),
+                    forwarding_state=forwarding_state,
+                )
                 enforcement_result = {
                     "applied": applied,
                     "mode": "active",
                     "onos": onos_result,
                     "ovs": ovs_result,
-                    "reason": reason,
+                    "forwarding_state": forwarding_state,
+                    "qos_state": qos_state,
+                    "queue_assignment_state": queue_assignment_state,
+                    "forwarding_check_result": forwarding_check_result,
+                    "applied_reason": applied_reason,
+                    "reason": applied_reason,
                 }
                 print(
                     "[policy] "
-                    f"onos_forwarding_ok={onos_ok} "
+                    f"forwarding_state={forwarding_state} "
                     f"ovs_qos_ok={bool(ovs_qos_result.get('ok'))} "
                     f"ovs_queue_assignment_ok={bool(ovs_queue_result.get('ok'))} "
                     f"onos_queue_ops_skipped={bool(onos_result.get('queue_operations_skipped'))}"
                 )
+                if forwarding_ready:
+                    forwarding_continuity_confirmed = True
+                    last_forwarding_state = forwarding_state
+                elif onos_enabled:
+                    forwarding_continuity_confirmed = False
+                    last_forwarding_state = forwarding_state
                 if applied:
                     last_applied_signature = target_signature
                     last_apply_monotonic = time.monotonic()
             else:
-                enforcement_result["reason"] = "profile unchanged or cooldown not elapsed."
+                enforcement_result["forwarding_state"] = (
+                    last_forwarding_state if forwarding_continuity_confirmed else "not_rechecked"
+                )
+                enforcement_result["applied_reason"] = "profile unchanged or cooldown not elapsed."
+                enforcement_result["reason"] = enforcement_result["applied_reason"]
 
         cycle = PolicyCycle(
             timestamp=utc_timestamp(),
@@ -287,6 +326,56 @@ def _flatten_reasons(decisions: List[Any]) -> List[str]:
         reasons = getattr(decision, "reasons", [])
         results.append(f"{display}: {', '.join(str(reason) for reason in reasons)}")
     return results
+
+
+def _build_forwarding_skip_result(*, slice_flow_rules: List[Dict[str, Any]], reason: str) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "scope": "forwarding_only",
+        "refresh_skipped": True,
+        "queue_operations_attempted": False,
+        "queue_operations_skipped": True,
+        "queue_operation_reason": (
+            "ONOS REST queue instructions are skipped; OVS installs per-slice queue assignment flows directly."
+        ),
+        "skipped_queue_rules": list(slice_flow_rules),
+        "error": "",
+        "reason": reason,
+    }
+
+
+def _derive_forwarding_state(onos_result: Dict[str, Any]) -> str:
+    if onos_result.get("installed_forwarding_flows"):
+        return "freshly_installed"
+    if onos_result.get("existing_forwarding_flows"):
+        return "already_present"
+    return "verified"
+
+
+def _compose_applied_reason(
+    *,
+    qos_ok: bool,
+    queue_assignment_ok: bool,
+    forwarding_state: str,
+) -> str:
+    if not qos_ok:
+        return "OVS QoS profile update failed."
+    if not queue_assignment_ok:
+        return "OVS queue-assignment flow update failed."
+    if forwarding_state == "missing":
+        return "Forwarding continuity could not be confirmed."
+    if forwarding_state == "freshly_installed":
+        return "OVS QoS and queue assignment succeeded, and ONOS forwarding flows were refreshed successfully."
+    if forwarding_state == "already_present":
+        return "OVS QoS and queue assignment succeeded, and forwarding continuity was already present."
+    if forwarding_state == "temporarily_unavailable_existing_baseline":
+        return (
+            "OVS QoS and queue assignment succeeded, and forwarding continuity was already present despite a temporary "
+            "ONOS refresh failure."
+        )
+    if forwarding_state == "not_required":
+        return "OVS QoS and queue assignment succeeded without requiring ONOS forwarding management."
+    return "OVS QoS and queue assignment succeeded, and forwarding continuity was verified."
 
 
 def _default_flow_priority(slice_name: str) -> int:

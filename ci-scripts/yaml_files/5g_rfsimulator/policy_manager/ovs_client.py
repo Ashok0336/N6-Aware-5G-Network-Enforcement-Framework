@@ -38,6 +38,83 @@ class OvsClient:
     def dump_flows(self) -> Dict[str, Any]:
         return self.docker_exec("ovs-ofctl", "-O", "OpenFlow13", "dump-flows", self.bridge_name)
 
+    def check_forwarding_continuity(self, *, upf_port_name: str) -> Dict[str, Any]:
+        upf_port_result = self.get_interface_ofport(upf_port_name)
+        if not upf_port_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": upf_port_result.get("error", "Failed to resolve the UPF OpenFlow port."),
+            }
+        edn_port_result = self.get_interface_ofport(self.egress_port_name)
+        if not edn_port_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": edn_port_result.get("error", "Failed to resolve the EDN OpenFlow port."),
+            }
+        dump_result = self.dump_flows()
+        if not dump_result["ok"]:
+            return {
+                "ok": False,
+                "scope": "forwarding_continuity",
+                "error": dump_result.get("error", "Failed to inspect current OVS forwarding flows."),
+                "result": dump_result,
+            }
+
+        upf_ofport = str(upf_port_result["ofport"])
+        edn_ofport = str(edn_port_result["ofport"])
+        existing_lines = str(dump_result.get("stdout", "")).splitlines()
+        checks = [
+            {
+                "name": "upf_to_edn_ipv4",
+                "selector_tokens": [f"in_port={upf_ofport}", "ip"],
+                "action_token": f"actions=output:{edn_ofport}",
+            },
+            {
+                "name": "edn_to_upf_ipv4",
+                "selector_tokens": [f"in_port={edn_ofport}", "ip"],
+                "action_token": f"actions=output:{upf_ofport}",
+            },
+            {
+                "name": "upf_to_edn_arp",
+                "selector_tokens": [f"in_port={upf_ofport}", "arp"],
+                "action_token": f"actions=output:{edn_ofport}",
+            },
+            {
+                "name": "edn_to_upf_arp",
+                "selector_tokens": [f"in_port={edn_ofport}", "arp"],
+                "action_token": f"actions=output:{upf_ofport}",
+            },
+        ]
+
+        missing = []
+        for check in checks:
+            matching_line = next(
+                (
+                    line
+                    for line in existing_lines
+                    if all(token in line for token in check["selector_tokens"])
+                    and check["action_token"] in line
+                ),
+                "",
+            )
+            check["present"] = bool(matching_line)
+            if matching_line:
+                check["matching_flow"] = matching_line
+            else:
+                missing.append(check["name"])
+
+        return {
+            "ok": not missing,
+            "scope": "forwarding_continuity",
+            "bridge_name": self.bridge_name,
+            "upf_ofport": upf_ofport,
+            "edn_ofport": edn_ofport,
+            "checks": checks,
+            "error": "" if not missing else f"Missing required forwarding continuity flows: {', '.join(missing)}.",
+        }
+
     def ensure_slice_queue_assignment_flows(
         self,
         *,
