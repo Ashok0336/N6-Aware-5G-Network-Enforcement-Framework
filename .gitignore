@@ -41,3 +41,14 @@ local-maven-repo/
 
 # Temp
 *.tmp
+
+# Runtime logs
+ci-scripts/yaml_files/5g_rfsimulator/logs/
+ci-scripts/yaml_files/5g_rfsimulator/results_real/
+
+# Temporary outputs
+*.jsonl
+*.csv
+*latest.json
+urllc_latency.txt
+
