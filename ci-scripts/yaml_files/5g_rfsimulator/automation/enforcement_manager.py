@@ -445,6 +445,7 @@ class EnforcementManager:
         self.last_processed_policy_reference: Optional[Dict[str, Any]] = None
         self.forwarding_continuity_confirmed = False
         self.last_forwarding_state = "unknown"
+        self.last_idle_queue_assignment_state_logged: Optional[str] = None
 
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_id = f"enforcement-{stamp}-{os.getpid()}"
@@ -542,6 +543,11 @@ class EnforcementManager:
                     "Could not read the current OVS queue profile on startup; assuming the default baseline profile.",
                 )
 
+        self.ensure_baseline_queue_flows(
+            source="startup_baseline_queue_assignment",
+            log_always=True,
+        )
+
         try:
             if self.restore_default:
                 self.reset_service_actions_to_default()
@@ -563,6 +569,10 @@ class EnforcementManager:
                         self.reconcile_or_hold()
                 else:
                     self.reconcile_or_hold()
+                self.ensure_baseline_queue_flows(
+                    source="periodic_baseline_queue_assignment",
+                    log_always=True,
+                )
 
                 if self.run_once:
                     break
@@ -778,22 +788,37 @@ class EnforcementManager:
         profile, active_actions = self.compose_target_profile()
         signature = profile_signature(profile)
         if signature == self.current_signature and self.pending_signature is None:
+            ovs_queue_result = self.ensure_slice_queue_assignment_flows(
+                list(self.onos_cfg["slice_flow_rules"]),
+                force_refresh=False,
+            )
+            queue_assignment_state = self.queue_assignment_state_from_result(ovs_queue_result)
+            ovs_result = {
+                "ok": bool(ovs_queue_result.get("ok")),
+                "queue_assignment_result": ovs_queue_result,
+                "startup_baseline_reconcile": False,
+                "previous_profile": self.current_profile,
+            }
+            explanation = (
+                "The computed live queue profile already matches the current effective profile; "
+                "baseline OVS service-classification flows were still reconciled."
+            )
             self.log_enforcement_record(
-                status="noop",
+                status="noop" if ovs_queue_result.get("ok") else "failed",
                 context=context,
                 previous_profile=self.current_profile,
                 target_profile=profile,
                 active_actions=active_actions,
                 flow_result=None,
-                ovs_result=None,
-                explanation="The computed live queue profile already matches the current effective profile.",
+                ovs_result=ovs_result,
+                explanation=explanation if ovs_queue_result.get("ok") else ovs_queue_result.get("error", explanation),
                 cooldown_status=None,
                 forwarding_state=(
                     self.last_forwarding_state if self.forwarding_continuity_confirmed else "not_rechecked"
                 ),
                 qos_state="not_reapplied",
-                queue_assignment_state="not_reapplied",
-                applied_reason="The computed live queue profile already matches the current effective profile.",
+                queue_assignment_state=queue_assignment_state,
+                applied_reason=explanation,
             )
             return
         self.pending_profile = profile
@@ -865,6 +890,84 @@ class EnforcementManager:
         if forwarding_state == "not_required":
             return "OVS QoS and queue assignment succeeded without requiring ONOS forwarding management."
         return "OVS QoS and queue assignment succeeded, and forwarding continuity was verified."
+
+    def queue_assignment_state_from_result(self, ovs_queue_result: Dict[str, Any]) -> str:
+        if not ovs_queue_result.get("ok"):
+            return "failed"
+        if ovs_queue_result.get("installed_flows") or ovs_queue_result.get("planned_commands"):
+            return "reapplied"
+        return "already_present"
+
+    def ensure_baseline_queue_flows(self, *, source: str, log_always: bool = True) -> Dict[str, Any]:
+        ovs_queue_result = self.ensure_slice_queue_assignment_flows(
+            list(self.onos_cfg["slice_flow_rules"]),
+            force_refresh=False,
+        )
+        queue_assignment_state = self.queue_assignment_state_from_result(ovs_queue_result)
+        ovs_result = {
+            "ok": bool(ovs_queue_result.get("ok")),
+            "queue_assignment_result": ovs_queue_result,
+            "baseline_reconcile_source": source,
+            "startup_baseline_reconcile": source == "startup_baseline_queue_assignment",
+            "periodic_baseline_reconcile": source == "periodic_baseline_queue_assignment",
+            "previous_profile": self.current_profile,
+        }
+        should_log = log_always or queue_assignment_state != "already_present"
+        if not should_log and self.last_idle_queue_assignment_state_logged != queue_assignment_state:
+            should_log = True
+        context = {
+            "source": source,
+            "decision_count": 0,
+            "policy_references": [],
+            "target_service_classes": list(self.service_classes),
+            "explanation": (
+                "Enforcement manager reconciles baseline UDP service-classification flows "
+                "independently of adaptive policy triggers."
+            ),
+        }
+        if ovs_queue_result.get("ok"):
+            explanation = (
+                "Baseline OVS service-classification flows were reconciled without changing "
+                "ONOS/bootstrap forwarding."
+            )
+        else:
+            explanation = ovs_queue_result.get(
+                "error",
+                "Baseline OVS service-classification flow reconciliation failed on startup.",
+            )
+        if should_log:
+            self.log_enforcement_record(
+                status="baseline_reconciled" if ovs_queue_result.get("ok") else "failed",
+                context=context,
+                previous_profile=self.current_profile,
+                target_profile=self.current_profile,
+                active_actions={},
+                flow_result=None,
+                ovs_result=ovs_result,
+                explanation=explanation,
+                cooldown_status=None,
+                forwarding_state=(
+                    self.last_forwarding_state if self.forwarding_continuity_confirmed else "not_rechecked"
+                ),
+                qos_state="not_reapplied",
+                queue_assignment_state=queue_assignment_state,
+                applied_reason=explanation,
+            )
+            if source == "periodic_baseline_queue_assignment":
+                self.last_idle_queue_assignment_state_logged = queue_assignment_state
+        if log_always or queue_assignment_state != "already_present":
+            label = "Startup" if source == "startup_baseline_queue_assignment" else "Periodic"
+            print_console(
+                "INFO" if ovs_queue_result.get("ok") else "WARN",
+                f"{label} baseline queue assignment "
+                f"{queue_assignment_state} (dry_run={self.dry_run}); "
+                f"installed_or_planned={len(ovs_queue_result.get('installed_flows', []))}; "
+                f"already_present={len(ovs_queue_result.get('existing_flows', []))}",
+            )
+        return ovs_queue_result
+
+    def ensure_baseline_queue_assignment(self, *, source: str, log_always: bool) -> Dict[str, Any]:
+        return self.ensure_baseline_queue_flows(source=source, log_always=log_always)
 
     def reconcile_or_hold(self) -> None:
         if self.pending_profile is None or self.pending_signature is None:
@@ -972,7 +1075,7 @@ class EnforcementManager:
             "previous_profile": previous_profile,
         }
         qos_state = "applied" if ovs_qos_result.get("ok") else "failed"
-        queue_assignment_state = "ensured" if ovs_queue_result.get("ok") else "failed"
+        queue_assignment_state = self.queue_assignment_state_from_result(ovs_queue_result)
         effective_applied = bool(ovs_result["ok"]) and forwarding_ready
         applied_reason = self._compose_apply_explanation(
             qos_ok=bool(ovs_qos_result.get("ok")),
@@ -1169,6 +1272,18 @@ class EnforcementManager:
             )
         return operations
 
+    def collect_installed_queue_flows(self, ovs_result: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not isinstance(ovs_result, dict):
+            return []
+        queue_result = ovs_result.get("queue_assignment_result")
+        if not isinstance(queue_result, dict):
+            queue_result = ovs_result if ovs_result.get("scope") == "queue_assignment" else {}
+        return [
+            dict(item)
+            for item in ensure_list(queue_result.get("installed_flows"))
+            if isinstance(item, dict)
+        ]
+
     def log_enforcement_record(
         self,
         status: str,
@@ -1196,6 +1311,7 @@ class EnforcementManager:
                 if isinstance(reference, dict)
             ]
         operations = self.collect_operations(flow_result, ovs_result)
+        installed_queue_flows = self.collect_installed_queue_flows(ovs_result)
         self.write_jsonl(
             {
                 "event_type": "enforcement_action",
@@ -1222,6 +1338,7 @@ class EnforcementManager:
                 "operations": operations,
                 "onos_result": flow_result,
                 "ovs_result": ovs_result,
+                "installed_queue_flows": installed_queue_flows,
                 "forwarding_state": forwarding_state,
                 "qos_state": qos_state,
                 "queue_assignment_state": queue_assignment_state,
