@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-07-07T00:00:00.000Z",
+  "octoprint_url": "http://10.88.188.190:5000",
+  "octoprint_reachable": true,
+  "printer_operational": true,
+  "availability": "available",
+  "printer_state_text": "Error: thermal runaway protection triggered",
+  "job_state": "Error",
+  "api_error": null,
+  "version": {
+    "server": "1.10.0"
+  },
+  "printer": {
+    "state": {
+      "text": "Error: thermal runaway protection triggered",
+      "flags": {
+        "operational": true,
+        "printing": false,
+        "paused": false,
+        "error": true
+      }
+    },
+    "temperature": {
+      "tool0": {
+        "actual": 0.0,
+        "target": 0.0
+      },
+      "bed": {
+        "actual": 0.0,
+        "target": 0.0
+      }
+    }
+  },
+  "job": {
+    "state": "Error",
+    "progress": {
+      "completion": 12.0,
+      "printTime": 240,
+      "printTimeLeft": 1760
+    }
+  }
+}

@@ -45,10 +45,12 @@ local-maven-repo/
 # Runtime logs
 ci-scripts/yaml_files/5g_rfsimulator/logs/
 ci-scripts/yaml_files/5g_rfsimulator/results_real/
+ci-scripts/yaml_files/5g_rfsimulator/final_results_backup/
+ci-scripts/yaml_files/5g_rfsimulator/final_results_backup_*.tar.gz
+ci-scripts/yaml_files/5g_rfsimulator/Application
 
 # Temporary outputs
 *.jsonl
 *.csv
 *latest.json
 urllc_latency.txt
-

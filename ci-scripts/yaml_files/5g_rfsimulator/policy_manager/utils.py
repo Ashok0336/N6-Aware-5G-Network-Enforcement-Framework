@@ -432,7 +432,7 @@ def merge_queue_profile(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[s
         merged["parent_max_rate_bps"] = int(overlay["parent_max_rate_bps"])
     for queue_id, queue_cfg in dict(overlay.get("queues", {})).items():
         merged.setdefault("queues", {}).setdefault(str(queue_id), {})
-        for key in ("min_rate_bps", "max_rate_bps"):
+        for key in ("min_rate_bps", "max_rate_bps", "priority"):
             if queue_cfg.get(key) is not None:
                 merged["queues"][str(queue_id)][key] = int(queue_cfg[key])
     return merged

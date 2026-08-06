@@ -20,6 +20,13 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
     onos_password = os.getenv("ONOS_PASSWORD", onos_auth_parts[1])
     metrics_http_host = os.getenv("POLICY_MANAGER_METRICS_HOST", "").strip()
     metrics_http_port = os.getenv("POLICY_MANAGER_METRICS_PORT", "").strip()
+    manufacturing_twin_enabled = os.getenv("MANUFACTURING_TWIN_ENABLED", "").strip()
+    manufacturing_twin_latest_path = os.getenv("MANUFACTURING_TWIN_LATEST_PATH", "").strip()
+    ccnc_disable_manufacturing_twin = os.getenv("CCNC_DISABLE_MANUFACTURING_TWIN", "").strip()
+    risk_inference_enabled = os.getenv("DT_RISK_INFERENCE_ENABLED", "").strip()
+    risk_prediction_path = os.getenv("DT_RISK_PREDICTION_PATH", "").strip()
+    risk_max_age_seconds = os.getenv("DT_RISK_MAX_AGE_SECONDS", "").strip()
+    risk_action_cooldown_seconds = os.getenv("DT_RISK_ACTION_COOLDOWN_SECONDS", "").strip()
 
     cfg.setdefault("poll_interval_seconds", 5)
     cfg.setdefault("decision_cooldown_seconds", 10)
@@ -32,10 +39,37 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
     cfg.setdefault("log_prefix", "closed_loop_policy")
     cfg.setdefault("ensure_onos_slice_flows", True)
     cfg.setdefault("force_onos_flow_refresh", False)
+    cfg.setdefault("manufacturing_twin_enabled", False)
+    cfg.setdefault("manufacturing_twin_latest_path", "../logs/manufacturing_twin/latest_machine_twin_state.json")
+    cfg.setdefault("manufacturing_twin_max_age_seconds", 10)
+    cfg.setdefault("risk_inference_enabled", False)
+    cfg.setdefault("risk_prediction_path", "../logs/risk_inference/latest_risk_prediction.json")
+    cfg.setdefault("risk_max_age_seconds", 10)
+    cfg.setdefault("risk_low_action", "MAINTAIN_CURRENT_POLICY")
+    cfg.setdefault("risk_medium_action", "VERIFY_QUEUE_RULES")
+    cfg.setdefault("risk_high_action", "VERIFY_OR_REINSTALL_QUEUE_RULES")
+    cfg.setdefault("risk_action_cooldown_seconds", 10)
     if metrics_http_host:
         cfg["metrics_http_host"] = metrics_http_host
     if metrics_http_port:
         cfg["metrics_http_port"] = metrics_http_port
+    if manufacturing_twin_enabled:
+        cfg["manufacturing_twin_enabled"] = manufacturing_twin_enabled
+    if manufacturing_twin_latest_path:
+        cfg["manufacturing_twin_latest_path"] = manufacturing_twin_latest_path
+    if ccnc_disable_manufacturing_twin and coerce_bool(
+        ccnc_disable_manufacturing_twin,
+        field_name="CCNC_DISABLE_MANUFACTURING_TWIN",
+    ):
+        cfg["manufacturing_twin_enabled"] = False
+    if risk_inference_enabled:
+        cfg["risk_inference_enabled"] = risk_inference_enabled
+    if risk_prediction_path:
+        cfg["risk_prediction_path"] = risk_prediction_path
+    if risk_max_age_seconds:
+        cfg["risk_max_age_seconds"] = risk_max_age_seconds
+    if risk_action_cooldown_seconds:
+        cfg["risk_action_cooldown_seconds"] = risk_action_cooldown_seconds
 
     onos_cfg = dict(cfg.get("onos", {}))
     onos_cfg.setdefault("base_url", onos_base_url)
@@ -55,6 +89,10 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
 
     cfg["telemetry_dir"] = str(normalize_path(base_dir, cfg["telemetry_dir"]))
     cfg["log_dir"] = str(normalize_path(base_dir, cfg["log_dir"]))
+    cfg["manufacturing_twin_latest_path"] = str(
+        _normalize_manufacturing_twin_path(base_dir, cfg["manufacturing_twin_latest_path"])
+    )
+    cfg["risk_prediction_path"] = str(_normalize_repo_artifact_path(base_dir, cfg["risk_prediction_path"]))
     cfg["poll_interval_seconds"] = float(cfg["poll_interval_seconds"])
     cfg["decision_cooldown_seconds"] = float(cfg["decision_cooldown_seconds"])
     cfg["dry_run_only"] = coerce_bool(
@@ -71,6 +109,20 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
         cfg["force_onos_flow_refresh"],
         field_name="policy_manager.force_onos_flow_refresh",
     )
+    cfg["manufacturing_twin_enabled"] = coerce_bool(
+        cfg["manufacturing_twin_enabled"],
+        field_name="policy_manager.manufacturing_twin_enabled",
+    )
+    cfg["manufacturing_twin_max_age_seconds"] = float(cfg["manufacturing_twin_max_age_seconds"])
+    cfg["risk_inference_enabled"] = coerce_bool(
+        cfg["risk_inference_enabled"],
+        field_name="policy_manager.risk_inference_enabled",
+    )
+    cfg["risk_max_age_seconds"] = float(cfg["risk_max_age_seconds"])
+    cfg["risk_low_action"] = str(cfg["risk_low_action"])
+    cfg["risk_medium_action"] = str(cfg["risk_medium_action"])
+    cfg["risk_high_action"] = str(cfg["risk_high_action"])
+    cfg["risk_action_cooldown_seconds"] = float(cfg["risk_action_cooldown_seconds"])
 
     queue_profiles = dict(cfg.get("queue_profiles", {}))
     cfg["queue_profiles"] = queue_profiles
@@ -92,3 +144,21 @@ def load_policy_config(config_path: Path) -> Dict[str, Any]:
         normalized_slices[str(slice_name)] = entry
     cfg["slices"] = normalized_slices
     return cfg
+
+
+def _normalize_manufacturing_twin_path(base_dir: Path, value: Any) -> Path:
+    candidate = Path(str(value)).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    if candidate.parts and candidate.parts[0] == "logs":
+        return (base_dir.parent / candidate).resolve()
+    return normalize_path(base_dir, candidate)
+
+
+def _normalize_repo_artifact_path(base_dir: Path, value: Any) -> Path:
+    candidate = Path(str(value)).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    if candidate.parts and candidate.parts[0] in {"logs", "risk_inference", "digital_twin"}:
+        return (base_dir.parent / candidate).resolve()
+    return normalize_path(base_dir, candidate)

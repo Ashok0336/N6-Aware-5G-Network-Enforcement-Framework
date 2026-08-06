@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-07-07T00:00:00.000Z",
+  "octoprint_url": "http://10.88.188.190:5000",
+  "octoprint_reachable": true,
+  "printer_operational": false,
+  "availability": "printer_offline",
+  "printer_state_text": "Offline",
+  "job_state": "Offline",
+  "api_error": "Printer is not operational",
+  "version": {
+    "server": "1.10.0"
+  },
+  "printer": {
+    "error": "Printer is not operational"
+  },
+  "job": {
+    "state": "Offline",
+    "progress": {
+      "completion": null,
+      "printTime": null,
+      "printTimeLeft": null
+    }
+  }
+}

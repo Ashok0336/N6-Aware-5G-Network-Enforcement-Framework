@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import Any, Dict
 
 from policy_manager.utils import parse_ovs_map, profile_signature, run_command
@@ -37,6 +38,117 @@ class OvsClient:
 
     def dump_flows(self) -> Dict[str, Any]:
         return self.docker_exec("ovs-ofctl", "-O", "OpenFlow13", "dump-flows", self.bridge_name)
+
+    def install_or_verify_onos_queue_rules(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "scope": "onos_queue_app",
+            "enforcement_path": "ONOS_QUEUE_APP",
+            "action": "INSTALL_OR_VERIFY_QUEUE_RULES",
+            "dry_run": self.dry_run_only,
+            "applied": False,
+            "ok": False,
+        }
+        if self.dry_run_only:
+            result.update({"ok": True, "reason": "dry_run"})
+            return result
+
+        before = self._verify_required_set_queue_ids()
+        result["before"] = before
+        if before.get("ok"):
+            result.update(
+                {
+                    "ok": True,
+                    "applied": True,
+                    "enforcement_status": "already_verified",
+                    "reason": "required set_queue flows already exist",
+                }
+            )
+            return result
+
+        install_result = self._install_onos_slice_flows()
+        result["install_result"] = install_result
+        if not install_result.get("ok"):
+            result.update(
+                {
+                    "enforcement_status": "install_failed",
+                    "enforcement_error": install_result.get("error", "install-slice-flows.sh failed"),
+                    "reason": install_result.get("error", "install-slice-flows.sh failed"),
+                }
+            )
+            return result
+
+        after = self._verify_required_set_queue_ids()
+        result["after"] = after
+        if after.get("ok"):
+            result.update(
+                {
+                    "ok": True,
+                    "applied": True,
+                    "enforcement_status": "installed_verified",
+                    "reason": "install-slice-flows.sh installed verified ONOS queue rules",
+                }
+            )
+            return result
+
+        result.update(
+            {
+                "enforcement_status": "verify_failed",
+                "enforcement_error": after.get("error", "set_queue verification failed after install"),
+                "reason": after.get("error", "set_queue verification failed after install"),
+            }
+        )
+        return result
+
+    def _verify_required_set_queue_ids(self) -> Dict[str, Any]:
+        dump_result = self.dump_flows()
+        if not dump_result["ok"]:
+            return {
+                "ok": False,
+                "error": dump_result.get("error", "Failed to inspect current OVS flows."),
+                "result": dump_result,
+            }
+        flow_lines = str(dump_result.get("stdout", "")).splitlines()
+        checks = [
+            {
+                "name": "high_throughput_data_forward_queue",
+                "udp_dst": "5201",
+                "queue_id": "1",
+            },
+            {
+                "name": "real_time_control_forward_queue",
+                "udp_dst": "5202",
+                "queue_id": "2",
+            },
+            {
+                "name": "sensor_telemetry_forward_queue",
+                "udp_dst": "5203",
+                "queue_id": "3",
+            },
+        ]
+        missing = []
+        for check in checks:
+            matching_line = next(
+                (
+                    line
+                    for line in flow_lines
+                    if "udp" in line
+                    and f"tp_dst={check['udp_dst']}" in line
+                    and f"actions=set_queue:{check['queue_id']}" in line
+                ),
+                "",
+            )
+            check["present"] = bool(matching_line)
+            if matching_line:
+                check["matching_flow"] = matching_line
+            else:
+                missing.append(check["name"])
+        return {
+            "ok": not missing,
+            "missing_queue_assignment_flows": missing,
+            "queue_assignment_checks": checks,
+            "set_queue_flows": [line for line in flow_lines if "set_queue" in line],
+            "error": "" if not missing else f"Missing queue assignment flows: {', '.join(missing)}",
+        }
 
     def check_forwarding_continuity(self, *, upf_port_name: str) -> Dict[str, Any]:
         upf_port_result = self.get_interface_ofport(upf_port_name)
@@ -155,9 +267,6 @@ class OvsClient:
             }
 
         existing_lines = str((dump_result or {}).get("stdout", "")).splitlines()
-        planned_commands: list[str] = []
-        command_results: list[Dict[str, Any]] = []
-        installed_flows: list[Dict[str, Any]] = []
         existing_flows: list[Dict[str, Any]] = []
         errors: list[str] = []
 
@@ -188,65 +297,10 @@ class OvsClient:
                     }
                 )
                 continue
-
-            selector = f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port}"
-            flow_definition = (
-                f"priority={priority},in_port={upf_ofport},udp,tp_dst={udp_port},"
-                f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            errors.append(
+                "Missing ONOS-installed queue assignment flow "
+                f"udp_port={udp_port} queue_id={queue_id} in_port={upf_ofport} output={edn_ofport}."
             )
-            delete_command = [
-                "docker",
-                "exec",
-                self.container_name,
-                "ovs-ofctl",
-                "-O",
-                "OpenFlow13",
-                "--strict",
-                "del-flows",
-                self.bridge_name,
-                selector,
-            ]
-            add_command = [
-                "docker",
-                "exec",
-                self.container_name,
-                "ovs-ofctl",
-                "-O",
-                "OpenFlow13",
-                "add-flow",
-                self.bridge_name,
-                flow_definition,
-            ]
-
-            if self.dry_run_only:
-                planned_commands.append(" ".join(delete_command))
-                planned_commands.append(" ".join(add_command))
-                installed_flows.append(
-                    {
-                        "udp_port": udp_port,
-                        "queue_id": queue_id,
-                        "priority": priority,
-                        "upf_ofport": upf_ofport,
-                        "edn_ofport": edn_ofport,
-                    }
-                )
-                continue
-
-            delete_result = run_command(delete_command, timeout_seconds=15)
-            add_result = run_command(add_command, timeout_seconds=15)
-            command_results.extend([delete_result, add_result])
-            if add_result["ok"]:
-                installed_flows.append(
-                    {
-                        "udp_port": udp_port,
-                        "queue_id": queue_id,
-                        "priority": priority,
-                        "upf_ofport": upf_ofport,
-                        "edn_ofport": edn_ofport,
-                    }
-                )
-                continue
-            errors.append(add_result.get("error", "OVS queue assignment flow update failed."))
 
         result: Dict[str, Any] = {
             "ok": not errors,
@@ -254,17 +308,95 @@ class OvsClient:
             "bridge_name": self.bridge_name,
             "upf_ofport": upf_ofport,
             "edn_ofport": edn_ofport,
-            "installed_flows": installed_flows,
             "existing_flows": existing_flows,
             "dry_run": self.dry_run_only,
+            "managed_by": "onos_slice_queue_app",
             "error": "; ".join(errors),
         }
         if self.dry_run_only:
-            result["planned_commands"] = planned_commands
             result["planned_only"] = True
+        elif errors:
+            install_result = self._install_onos_slice_flows()
+            result["action"] = "install-slice-flows.sh"
+            result["install_result"] = install_result
+            if install_result.get("ok"):
+                verify_result = self._verify_queue_assignment_flows(
+                    upf_ofport=upf_ofport,
+                    edn_ofport=edn_ofport,
+                    slice_flow_rules=slice_flow_rules,
+                )
+                result.update(verify_result)
+                result["ok"] = bool(verify_result.get("ok"))
+                result["error"] = str(verify_result.get("error", ""))
         else:
-            result["results"] = command_results
+            result["action"] = "onos_queue_assignment_already_present"
         return result
+
+    def _install_onos_slice_flows(self) -> Dict[str, Any]:
+        script_path = Path(__file__).resolve().parents[1] / "install-slice-flows.sh"
+        if not script_path.exists():
+            return {
+                "ok": False,
+                "error": f"Missing ONOS queue installation script: {script_path}",
+            }
+        return run_command(["bash", str(script_path)], timeout_seconds=120)
+
+    def _verify_queue_assignment_flows(
+        self,
+        *,
+        upf_ofport: str,
+        edn_ofport: str,
+        slice_flow_rules: list[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        dump_result = self.dump_flows()
+        if not dump_result["ok"]:
+            return {
+                "ok": False,
+                "error": dump_result.get("error", "Failed to inspect current OVS flows."),
+                "result": dump_result,
+            }
+
+        existing_lines = str(dump_result.get("stdout", "")).splitlines()
+        existing_flows: list[Dict[str, Any]] = []
+        errors: list[str] = []
+        for rule in slice_flow_rules:
+            udp_port = int(rule["udp_port"])
+            queue_id = int(rule["queue_id"])
+            selector_tokens = [
+                f"in_port={upf_ofport}",
+                "udp",
+                f"tp_dst={udp_port}",
+            ]
+            action_token = f"actions=set_queue:{queue_id},output:{edn_ofport}"
+            matching_line = next(
+                (
+                    line
+                    for line in existing_lines
+                    if all(token in line for token in selector_tokens) and action_token in line
+                ),
+                "",
+            )
+            if matching_line:
+                existing_flows.append(
+                    {
+                        "udp_port": udp_port,
+                        "queue_id": queue_id,
+                        "upf_ofport": upf_ofport,
+                        "edn_ofport": edn_ofport,
+                        "matching_flow": matching_line,
+                    }
+                )
+            else:
+                errors.append(
+                    "Missing ONOS-installed queue assignment flow "
+                    f"udp_port={udp_port} queue_id={queue_id} in_port={upf_ofport} output={edn_ofport}."
+                )
+
+        return {
+            "ok": not errors,
+            "existing_flows": existing_flows,
+            "error": "; ".join(errors),
+        }
 
     def get_port_qos_uuid(self) -> Dict[str, Any]:
         result = self.docker_exec("ovs-vsctl", "get", "port", self.egress_port_name, "qos")
@@ -298,6 +430,7 @@ class OvsClient:
             profile["queues"][str(queue_id)] = {
                 "min_rate_bps": int(queue_cfg.get("min-rate", "0") or "0"),
                 "max_rate_bps": int(queue_cfg.get("max-rate", "0") or "0"),
+                "priority": int(queue_cfg.get("priority", "0") or "0"),
             }
         return {"ok": True, "profile": profile, "signature": profile_signature(profile)}
 
@@ -354,6 +487,8 @@ class OvsClient:
                     f"other-config:max-rate={queue_cfg['max_rate_bps']}",
                 ]
             )
+            if "priority" in queue_cfg:
+                command.append(f"other-config:priority={queue_cfg['priority']}")
         if self.dry_run_only:
             return {"ok": True, "dry_run": True, "planned_commands": [" ".join(command)]}
         result = run_command(command, timeout_seconds=20)
@@ -388,6 +523,8 @@ class OvsClient:
                     f"other-config:max-rate={queue_cfg['max_rate_bps']}",
                 ]
             )
+            if "priority" in queue_cfg:
+                commands[-1].append(f"other-config:priority={queue_cfg['priority']}")
         if self.dry_run_only:
             return {"ok": True, "dry_run": True, "planned_commands": [" ".join(command) for command in commands]}
         results = [run_command(command, timeout_seconds=20) for command in commands]

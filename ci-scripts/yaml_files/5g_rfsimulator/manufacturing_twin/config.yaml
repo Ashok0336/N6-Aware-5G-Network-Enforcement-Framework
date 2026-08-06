@@ -1,0 +1,9 @@
+machine_id: ender3_01
+machine_type: Ender-3
+controller: OctoPrint
+poll_interval_seconds: 2
+outputs:
+  jsonl_path: logs/manufacturing_twin/machine_twin_state.jsonl
+  latest_json_path: logs/manufacturing_twin/latest_machine_twin_state.json
+  metrics_csv_path: logs/manufacturing_twin/machine_twin_metrics.csv
+

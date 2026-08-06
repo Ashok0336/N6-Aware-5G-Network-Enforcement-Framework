@@ -11,6 +11,12 @@
   "unchanged_decision_log_interval_seconds": 30,
   "default_policy_action": "MAINTAIN_CURRENT_POLICY",
   "restore_policy_action": "RESTORE_DEFAULT_POLICY",
+  "risk_inference_enabled": false,
+  "risk_prediction_path": "logs/risk_inference/latest_risk_prediction.json",
+  "risk_max_age_seconds": 10,
+  "risk_high_action": "VERIFY_OR_REINSTALL_QUEUE_RULES",
+  "risk_medium_action": "VERIFY_QUEUE_RULES",
+  "risk_low_action": "MAINTAIN_CURRENT_POLICY",
   "service_classes": {
     "real_time_control": {
       "policy_name": "real_time_control_guard",

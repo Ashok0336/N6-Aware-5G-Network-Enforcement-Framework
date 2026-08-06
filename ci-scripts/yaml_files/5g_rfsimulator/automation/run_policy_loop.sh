@@ -18,7 +18,11 @@ for arg in "$@"; do
       MODE_SOURCE="cli"
       ;;
     --active)
-      MODE_LABEL="active"
+      MODE_LABEL="live"
+      MODE_SOURCE="cli"
+      ;;
+    --live)
+      MODE_LABEL="live"
       MODE_SOURCE="cli"
       ;;
   esac
@@ -33,7 +37,7 @@ from pathlib import Path
 from policy_manager.config import load_policy_config
 
 config = load_policy_config(Path(sys.argv[1]).resolve())
-print("dry-run" if config["dry_run_only"] else "active")
+print("dry-run" if config["dry_run_only"] else "live")
 PY
   )"
 fi
@@ -42,4 +46,4 @@ echo "[policy-loop] authoritative config: ${CONFIG_PATH}"
 echo "[policy-loop] mode: ${MODE_LABEL} (${MODE_SOURCE})"
 
 cd "${TESTBED_DIR}"
-exec env PYTHONPATH="${TESTBED_DIR}:${PYTHONPATH:-}" python3 -m policy_manager.app --config "${CONFIG_PATH}" "$@"
+exec env PYTHONUNBUFFERED=1 PYTHONPATH="${TESTBED_DIR}:${PYTHONPATH:-}" python3 -u -m policy_manager.app --config "${CONFIG_PATH}" "$@"

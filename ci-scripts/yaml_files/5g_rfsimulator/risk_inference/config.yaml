@@ -1,0 +1,49 @@
+sla_thresholds:
+  real_time_control:
+    latency_avg_ms: 25
+    latency_max_ms: 50
+    jitter_ms: 10
+    packet_loss_percent: 1
+  high_throughput_data:
+    throughput_bps: 20000000
+    packet_loss_percent: 2
+  sensor_telemetry:
+    delivery_ratio_percent: 98
+    packet_loss_percent: 1
+
+risk_weights:
+  sla_margin_weight: 0.40
+  trend_weight: 0.25
+  queue_pressure_weight: 0.20
+  enforcement_mismatch_weight: 0.15
+
+risk_boundaries:
+  low_max: 0.33
+  medium_max: 0.66
+
+max_twin_age_seconds: 30
+
+expected_queue_mapping:
+  high_throughput_data:
+    protocol: UDP
+    port: 5201
+    queue_id: "1"
+  real_time_control:
+    protocol: UDP
+    port: 5202
+    queue_id: "2"
+  sensor_telemetry:
+    protocol: UDP
+    port: 5203
+    queue_id: "3"
+
+output_paths:
+  output_dir: logs/risk_inference
+  latest_prediction: latest_risk_prediction.json
+  prediction_log: risk_predictions.jsonl
+
+queue_pressure:
+  bytes_medium: 1000000
+  bytes_high: 10000000
+  packets_medium: 1000
+  packets_high: 10000

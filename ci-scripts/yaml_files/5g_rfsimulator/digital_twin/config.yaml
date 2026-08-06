@@ -1,0 +1,5 @@
+telemetry_dir: ../logs/telemetry
+telemetry_glob: telemetry_*.jsonl
+twin_output_path: ../logs/digital_twin/twin_state.jsonl
+sync_interval_seconds: 2
+

@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-07-07T00:00:00.000Z",
+  "octoprint_url": "http://10.88.188.190:5000",
+  "octoprint_reachable": true,
+  "printer_operational": true,
+  "availability": "available",
+  "printer_state_text": "Printing",
+  "job_state": "Printing",
+  "api_error": null,
+  "version": {
+    "server": "1.10.0"
+  },
+  "printer": {
+    "state": {
+      "text": "Printing",
+      "flags": {
+        "operational": true,
+        "printing": true,
+        "paused": false,
+        "error": false
+      }
+    },
+    "temperature": {
+      "tool0": {
+        "actual": 204.8,
+        "target": 205.0
+      },
+      "bed": {
+        "actual": 59.9,
+        "target": 60.0
+      }
+    }
+  },
+  "job": {
+    "state": "Printing",
+    "file": {
+      "name": "bracket.gcode",
+      "display": "bracket.gcode"
+    },
+    "progress": {
+      "completion": 97.2,
+      "printTime": 1944,
+      "printTimeLeft": 56
+    }
+  }
+}

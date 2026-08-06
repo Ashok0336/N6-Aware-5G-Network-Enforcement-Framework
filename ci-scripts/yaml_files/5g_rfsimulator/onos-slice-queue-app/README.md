@@ -21,8 +21,8 @@ mvn clean package
 Copy bundle into ONOS container and install via Karaf:
 
 ```bash
-docker cp target/onos-slice-queue-app-1.0.0.jar onos:/tmp/
-docker exec -it onos /bin/bash -lc 'onos-app localhost install! /tmp/onos-slice-queue-app-1.0.0.jar'
+docker cp target/onos-slice-queue-app-1.0.0.jar onos:/tmp/onos-slice-queue-app-1.0.0.jar
+docker exec -it onos /bin/bash -lc "printf 'bundle:install -s file:/tmp/onos-slice-queue-app-1.0.0.jar\n' | /root/onos/apache-karaf-4.2.14/bin/client -u karaf -p karaf -b"
 ```
 
 Then verify:

@@ -110,8 +110,13 @@ for binding in "${UE_BINDINGS[@]}"; do
     echo "[data-traffic] ERROR: Malformed UE binding: ${binding@Q}" >&2
     exit 1
   fi
+  tunnel_ip="$(get_ue_tunnel_ip "$container_name")"
+  if [[ -z "$tunnel_ip" ]]; then
+    echo "[data-traffic] ERROR: missing oaitun_ue1 ue_id=${ue_label} container=${container_name}" >&2
+    exit 1
+  fi
   log_path="${OUTPUT_DIR}/${log_file_name}"
-  echo "[data-traffic] START ue=${ue_label} container=${container_name} bulk UDP -> ${TARGET_IP}:${TARGET_PORT} (${log_path})"
+  echo "[data-traffic] START ue_id=${ue_label} container=${container_name} tunnel_interface=oaitun_ue1 tunnel_ip=${tunnel_ip} target_ip=${TARGET_IP} target_port=${TARGET_PORT} bulk UDP (${log_path})"
   run_udp_sender \
     "$container_name" \
     "high_throughput_data" \
@@ -122,6 +127,7 @@ for binding in "${UE_BINDINGS[@]}"; do
     "$UDP_PAYLOAD_BYTES" \
     "$UDP_PACKETS_PER_BURST" \
     "$UDP_BURST_INTERVAL_SECONDS" \
+    "$tunnel_ip" \
     >"$log_path" 2>&1 &
   PIDS+=("$!")
 done

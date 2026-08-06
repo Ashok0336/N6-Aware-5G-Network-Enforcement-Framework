@@ -78,6 +78,12 @@ parse_ue_binding() {
   IFS=$'\t' read -r container_name_ref ue_label_ref log_file_name_ref auxiliary_ref <<<"$binding"
 }
 
+get_ue_tunnel_ip() {
+  local container_name="$1"
+  docker exec "$container_name" bash -lc \
+    "ip -4 addr show oaitun_ue1 2>/dev/null | awk '/inet / {print \$2}' | cut -d/ -f1 | head -n1"
+}
+
 get_udp_sink_plan_lines() {
   local service_mapping_path="${1:-$DEFAULT_SERVICE_MAPPING_PATH}"
   python3 - "$SCRIPT_DIR" "$service_mapping_path" <<'PY'
@@ -140,6 +146,7 @@ run_udp_sender() {
   local payload_bytes="$7"
   local packets_per_burst="$8"
   local burst_interval_seconds="$9"
+  local source_ip="${10}"
 
   docker exec "$container_name" bash -lc "
 set -euo pipefail
@@ -151,29 +158,76 @@ packets_per_burst='${packets_per_burst}'
 burst_interval_seconds='${burst_interval_seconds}'
 service_class='${service_class}'
 traffic_mode='${traffic_mode}'
-payload=\$(printf '%*s' \"\${payload_bytes}\" '' | tr ' ' 'x')
-echo \"START type=udp_sender service_class=\${service_class} mode=\${traffic_mode} payload_bytes=\${payload_bytes} target_ip=\${target_ip} target_port=\${target_port} burst_packets=\${packets_per_burst} burst_interval_seconds=\${burst_interval_seconds} duration_seconds=\${duration_seconds}\"
-exec 3<>/dev/udp/\${target_ip}/\${target_port}
-packets_sent=0
-bytes_sent=0
-end_time=\$((SECONDS + duration_seconds))
-while (( SECONDS < end_time )); do
-  burst_index=0
-  while (( burst_index < packets_per_burst )); do
-    printf '%s' \"\${payload}\" >&3 || true
-    packets_sent=\$((packets_sent + 1))
-    bytes_sent=\$((bytes_sent + payload_bytes))
-    burst_index=\$((burst_index + 1))
-  done
-  echo \"sent_packets=\${packets_sent}\"
-  sleep \"\${burst_interval_seconds}\"
-done
-average_bitrate_bps=0
-packet_rate_per_second=0
-if (( duration_seconds > 0 )); then
-  average_bitrate_bps=\$((bytes_sent * 8 / duration_seconds))
-  packet_rate_per_second=\$((packets_sent / duration_seconds))
+source_ip='${source_ip}'
+if [[ -z \"\${source_ip}\" ]]; then
+  echo \"ERROR: missing oaitun_ue1\" >&2
+  exit 1
 fi
-echo \"SUMMARY type=udp_sender service_class=\${service_class} mode=\${traffic_mode} packets_sent=\${packets_sent} sent_packets=\${packets_sent} bytes_sent=\${bytes_sent} average_bitrate_bps=\${average_bitrate_bps} packet_rate_per_second=\${packet_rate_per_second} payload_bytes=\${payload_bytes} target_ip=\${target_ip} target_port=\${target_port} burst_packets=\${packets_per_burst} burst_interval_seconds=\${burst_interval_seconds} duration_seconds=\${duration_seconds}\"
+echo \"START type=udp_sender service_class=\${service_class} mode=\${traffic_mode} tunnel_interface=oaitun_ue1 source_ip=\${source_ip} payload_bytes=\${payload_bytes} target_ip=\${target_ip} target_port=\${target_port} burst_packets=\${packets_per_burst} burst_interval_seconds=\${burst_interval_seconds} duration_seconds=\${duration_seconds}\"
+python3 - \"\${source_ip}\" \"\${target_ip}\" \"\${target_port}\" \"\${duration_seconds}\" \"\${payload_bytes}\" \"\${packets_per_burst}\" \"\${burst_interval_seconds}\" \"\${service_class}\" \"\${traffic_mode}\" <<'PY'
+import socket
+import sys
+import time
+from datetime import datetime, timezone
+
+source_ip = sys.argv[1]
+target_ip = sys.argv[2]
+target_port = int(sys.argv[3])
+duration_seconds = float(sys.argv[4])
+payload_bytes = int(sys.argv[5])
+packets_per_burst = int(sys.argv[6])
+burst_interval_seconds = float(sys.argv[7])
+service_class = sys.argv[8]
+traffic_mode = sys.argv[9]
+
+payload = b'x' * payload_bytes
+packets_sent = 0
+bytes_sent = 0
+start_time = time.monotonic()
+end_time = time.monotonic() + max(0.0, duration_seconds)
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((source_ip, 0))
+try:
+    while time.monotonic() < end_time:
+        for _ in range(max(1, packets_per_burst)):
+            sock.sendto(payload, (target_ip, target_port))
+            packets_sent += 1
+            bytes_sent += payload_bytes
+        elapsed = time.monotonic() - start_time
+        timestamp = datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\")
+        print(
+            f\"timestamp={timestamp}\"
+            f\" elapsed_seconds={elapsed:.6f}\"
+            f\" sent_packets={packets_sent}\"
+            f\" bytes_sent={bytes_sent}\",
+            flush=True,
+        )
+        time.sleep(max(0.0, burst_interval_seconds))
+finally:
+    sock.close()
+
+duration_for_rate = duration_seconds if duration_seconds > 0 else 1.0
+average_bitrate_bps = int(bytes_sent * 8 / duration_for_rate)
+packet_rate_per_second = int(packets_sent / duration_for_rate)
+print(
+    \"SUMMARY type=udp_sender\"
+    f\" service_class={service_class}\"
+    f\" mode={traffic_mode}\"
+    f\" packets_sent={packets_sent}\"
+    f\" sent_packets={packets_sent}\"
+    f\" bytes_sent={bytes_sent}\"
+    f\" average_bitrate_bps={average_bitrate_bps}\"
+    f\" packet_rate_per_second={packet_rate_per_second}\"
+    f\" payload_bytes={payload_bytes}\"
+    f\" source_ip={source_ip}\"
+    f\" target_ip={target_ip}\"
+    f\" target_port={target_port}\"
+    f\" burst_packets={packets_per_burst}\"
+    f\" burst_interval_seconds={burst_interval_seconds}\"
+    f\" duration_seconds={duration_seconds}\",
+    flush=True,
+)
+PY
 "
 }

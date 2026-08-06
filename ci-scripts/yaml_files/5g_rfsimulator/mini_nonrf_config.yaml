@@ -96,6 +96,7 @@ database:
 snssais:
   - &embb_slice1
     sst: 1
+    sd: "FFFFFF"
   - &urllc_slice
     sst: 2
     sd: "112233"

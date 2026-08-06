@@ -129,17 +129,22 @@ for binding in "${UE_BINDINGS[@]}"; do
     echo "[control-traffic] ERROR: Malformed UE binding: ${binding@Q}" >&2
     exit 1
   fi
+  tunnel_ip="$(get_ue_tunnel_ip "$container_name")"
+  if [[ -z "$tunnel_ip" ]]; then
+    echo "[control-traffic] ERROR: missing oaitun_ue1 ue_id=${ue_label} container=${container_name}" >&2
+    exit 1
+  fi
   control_log_path="${OUTPUT_DIR}/${log_file_name}"
-  echo "[control-traffic] START ue=${ue_label} container=${container_name} ping -> ${TARGET_IP} (${control_log_path})"
+  echo "[control-traffic] START ue_id=${ue_label} container=${container_name} tunnel_interface=oaitun_ue1 tunnel_ip=${tunnel_ip} target_ip=${TARGET_IP} target_port=${TARGET_PORT} ping (${control_log_path})"
   docker exec "$container_name" bash -lc \
-    "ping -i ${PING_INTERVAL_SECONDS} -c ${PING_COUNT} ${TARGET_IP}" \
+    "echo 'START type=ping ue_id=${ue_label} container=${container_name} tunnel_interface=oaitun_ue1 tunnel_ip=${tunnel_ip} target_ip=${TARGET_IP} target_port=${TARGET_PORT} ping_interval_seconds=${PING_INTERVAL_SECONDS} duration_seconds=${DURATION_SECONDS}'; ping -D -I oaitun_ue1 -i ${PING_INTERVAL_SECONDS} -c ${PING_COUNT} ${TARGET_IP}" \
     >"$control_log_path" 2>&1 &
   PIDS+=("$!")
 
   IFS=',' read -r udp_log_name _ <<<"$auxiliary_logs"
   if [[ -n "${udp_log_name}" ]]; then
     udp_log_path="${OUTPUT_DIR}/${udp_log_name}"
-    echo "[control-traffic] START ue=${ue_label} container=${container_name} low-rate UDP -> ${TARGET_IP}:${TARGET_PORT} (${udp_log_path})"
+    echo "[control-traffic] START ue_id=${ue_label} container=${container_name} tunnel_interface=oaitun_ue1 tunnel_ip=${tunnel_ip} target_ip=${TARGET_IP} target_port=${TARGET_PORT} low-rate UDP (${udp_log_path})"
     run_udp_sender \
       "$container_name" \
       "real_time_control" \
@@ -150,6 +155,7 @@ for binding in "${UE_BINDINGS[@]}"; do
       "$UDP_PAYLOAD_BYTES" \
       "$UDP_PACKETS_PER_BURST" \
       "$UDP_BURST_INTERVAL_SECONDS" \
+      "$tunnel_ip" \
       >"$udp_log_path" 2>&1 &
     PIDS+=("$!")
   fi

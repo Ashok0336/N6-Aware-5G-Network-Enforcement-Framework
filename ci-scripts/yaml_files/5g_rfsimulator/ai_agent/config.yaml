@@ -1,0 +1,7 @@
+twin_state_path: ../logs/digital_twin/twin_state.jsonl
+predictions_path: ../logs/ml_predictor/predictions.jsonl
+decisions_output_path: ../logs/ai_agent/agent_decisions.jsonl
+agent_policy_output_path: ../logs/policy/policy_decisions_agent.jsonl
+agent_interval_seconds: 2
+urllc_latency_restore_threshold_ms: 10
+embb_throughput_restore_threshold_bps: 75000000

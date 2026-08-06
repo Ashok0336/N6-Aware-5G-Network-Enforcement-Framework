@@ -12,6 +12,7 @@ class SliceDecision:
     reasons: List[str] = field(default_factory=list)
     metrics: Dict[str, Any] = field(default_factory=dict)
     healthy: bool = True
+    selected_policy_action: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -21,6 +22,7 @@ class SliceDecision:
             "reasons": list(self.reasons),
             "metrics": dict(self.metrics),
             "healthy": self.healthy,
+            "selected_policy_action": self.selected_policy_action,
         }
 
 

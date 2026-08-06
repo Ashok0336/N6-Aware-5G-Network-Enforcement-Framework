@@ -44,11 +44,39 @@ DEFAULT_ACTION_MAINTAIN = "MAINTAIN_CURRENT_POLICY"
 DEFAULT_ACTION_RESTORE = "RESTORE_DEFAULT_POLICY"
 DEFAULT_METRICS_HTTP_HOST = "0.0.0.0"
 DEFAULT_METRICS_HTTP_PORT = 8001
+DEFAULT_MANUFACTURING_TWIN_LATEST_PATH = "logs/manufacturing_twin/latest_machine_twin_state.json"
+DEFAULT_MANUFACTURING_TWIN_MAX_AGE_SECONDS = 10.0
+DEFAULT_RISK_PREDICTION_PATH = "logs/risk_inference/latest_risk_prediction.json"
+DEFAULT_RISK_MAX_AGE_SECONDS = 10.0
+DEFAULT_RISK_HIGH_ACTION = "VERIFY_OR_REINSTALL_QUEUE_RULES"
+DEFAULT_RISK_MEDIUM_ACTION = "VERIFY_QUEUE_RULES"
+DEFAULT_RISK_LOW_ACTION = "MAINTAIN_CURRENT_POLICY"
 
 SLICE_NAME_BY_SERVICE_CLASS = {
     "real_time_control": "urllc",
     "high_throughput_data": "embb",
     "sensor_telemetry": "mmtc",
+}
+
+MANUFACTURING_PHASE_SERVICE_CLASSES = {
+    "print_initialization": {"real_time_control"},
+    "active_printing": {"real_time_control", "sensor_telemetry"},
+    "print_completion": {"real_time_control"},
+    "job_upload": {"high_throughput_data"},
+    "paused": {"real_time_control", "sensor_telemetry"},
+    "machine_error": {"real_time_control", "sensor_telemetry"},
+}
+
+RISK_LEVEL_ORDER = {
+    "low": 0,
+    "medium": 1,
+    "high": 2,
+}
+
+RISK_FIELD_BY_SERVICE_CLASS = {
+    "real_time_control": "real_time_control_risk",
+    "high_throughput_data": "high_throughput_data_risk",
+    "sensor_telemetry": "sensor_telemetry_risk",
 }
 
 
@@ -67,6 +95,24 @@ def print_console(level: str, message: str) -> None:
 
 def normalize_path(base_dir: Path, value: str) -> str:
     return str((base_dir / value).resolve())
+
+
+def normalize_manufacturing_twin_path(base_dir: Path, value: str) -> str:
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    if candidate.parts and candidate.parts[0] == "logs":
+        return str((base_dir.parent / candidate).resolve())
+    return normalize_path(base_dir, value)
+
+
+def normalize_repo_artifact_path(base_dir: Path, value: str) -> str:
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        return str(candidate)
+    if candidate.parts and candidate.parts[0] in {"logs", "digital_twin", "risk_inference"}:
+        return str((base_dir.parent / candidate).resolve())
+    return normalize_path(base_dir, value)
 
 
 def load_config(config_path: Path) -> Dict[str, Any]:
@@ -90,6 +136,18 @@ def parse_timestamp(value: Optional[str]) -> Optional[dt.datetime]:
         return dt.datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def timestamp_age_seconds(value: Any, now: Optional[dt.datetime] = None) -> Optional[float]:
+    parsed = parse_timestamp(str(value)) if value is not None else None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    reference = now or dt.datetime.now(dt.timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=dt.timezone.utc)
+    return max(0.0, (reference - parsed).total_seconds())
 
 
 def to_float(value: Any) -> Optional[float]:
@@ -165,11 +223,282 @@ def strip_none_values(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def read_manufacturing_twin_state(path: Path | str) -> Optional[Dict[str, Any]]:
+    latest_path = Path(path).expanduser()
+    if not latest_path.exists() or not latest_path.is_file():
+        return None
+    try:
+        with latest_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def read_risk_prediction(path: Path | str) -> Optional[Dict[str, Any]]:
+    prediction_path = Path(path).expanduser()
+    if not prediction_path.exists() or not prediction_path.is_file():
+        return None
+    try:
+        with prediction_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def is_machine_twin_fresh(machine_twin: Optional[Dict[str, Any]], max_age_seconds: float) -> bool:
+    if not isinstance(machine_twin, dict):
+        return False
+    age = timestamp_age_seconds(machine_twin.get("timestamp"))
+    return age is not None and age <= max_age_seconds
+
+
+def is_risk_prediction_fresh(
+    prediction: Optional[Dict[str, Any]],
+    max_age_seconds: float,
+) -> bool:
+    if not isinstance(prediction, dict):
+        return False
+    age = timestamp_age_seconds(prediction.get("timestamp"))
+    return age is not None and age <= max_age_seconds
+
+
+def normalize_risk_level(value: Any) -> str:
+    if isinstance(value, bool):
+        return "high" if value else "low"
+    numeric_value = to_float(value)
+    if numeric_value is not None:
+        if numeric_value >= 2:
+            return "high"
+        if numeric_value >= 1:
+            return "medium"
+        return "low"
+    text = str(value or "").strip().lower()
+    if text in RISK_LEVEL_ORDER:
+        return text
+    if text in {"true", "yes", "risk"}:
+        return "high"
+    if text in {"false", "no", "none"}:
+        return "low"
+    return "unknown"
+
+
+def risk_level_rank(value: Any) -> int:
+    return RISK_LEVEL_ORDER.get(normalize_risk_level(value), -1)
+
+
+def risk_is_at_least(value: Any, minimum: str) -> bool:
+    return risk_level_rank(value) >= RISK_LEVEL_ORDER[minimum]
+
+
+def selected_action_for_risk_level(
+    overall_risk_level: str,
+    *,
+    high_action: str,
+    medium_action: str,
+    low_action: str,
+) -> str:
+    if overall_risk_level == "high":
+        return high_action
+    if overall_risk_level == "medium":
+        return medium_action
+    return low_action
+
+
+def build_risk_inference_policy_context(
+    prediction: Optional[Dict[str, Any]],
+    *,
+    enabled: bool = True,
+    latest_path: Path | str = "",
+    max_age_seconds: float = DEFAULT_RISK_MAX_AGE_SECONDS,
+    high_action: str = DEFAULT_RISK_HIGH_ACTION,
+    medium_action: str = DEFAULT_RISK_MEDIUM_ACTION,
+    low_action: str = DEFAULT_RISK_LOW_ACTION,
+) -> Dict[str, Any]:
+    context: Dict[str, Any] = {
+        "enabled": enabled,
+        "status": "disabled" if not enabled else "missing",
+        "fresh": False,
+        "valid_for_policy": False,
+        "latest_path": str(latest_path),
+        "prediction": prediction if isinstance(prediction, dict) else None,
+        "overall_risk_level": "disabled" if not enabled else "unknown",
+        "overall_risk_score": None,
+        "real_time_control_risk": "unknown",
+        "high_throughput_data_risk": "unknown",
+        "sensor_telemetry_risk": "unknown",
+        "recommended_policy_action": None,
+        "selected_policy_action": None,
+        "inference_status": "disabled" if not enabled else "missing",
+        "data_quality_status": [],
+        "queue_rule_presence": None,
+        "policy_drift_detected": None,
+        "state_age_seconds": None,
+        "error": None,
+        "service_risk_levels": {},
+    }
+    if not enabled:
+        return context
+    if not isinstance(prediction, dict):
+        context["error"] = "risk_prediction_unavailable"
+        return context
+
+    age = timestamp_age_seconds(prediction.get("timestamp"))
+    inference_status = str(prediction.get("inference_status") or "unknown")
+    valid_for_policy = bool(prediction.get("valid_for_policy") is True)
+    overall_level = normalize_risk_level(prediction.get("overall_risk_level"))
+    service_levels = risk_service_levels(prediction)
+    selected_action = selected_action_for_risk_level(
+        overall_level,
+        high_action=high_action,
+        medium_action=medium_action,
+        low_action=low_action,
+    )
+    context.update(
+        {
+            "overall_risk_level": overall_level,
+            "overall_risk_score": to_float(prediction.get("overall_risk_score")),
+            "real_time_control_risk": service_levels["real_time_control"],
+            "high_throughput_data_risk": service_levels["high_throughput_data"],
+            "sensor_telemetry_risk": service_levels["sensor_telemetry"],
+            "recommended_policy_action": prediction.get("recommended_policy_action"),
+            "selected_policy_action": selected_action,
+            "inference_status": inference_status,
+            "valid_for_policy": valid_for_policy,
+            "data_quality_status": prediction.get("data_quality_status") or [],
+            "queue_rule_presence": prediction.get("queue_rule_presence"),
+            "policy_drift_detected": prediction.get("policy_drift_detected"),
+            "state_age_seconds": age,
+            "service_risk_levels": service_levels,
+        }
+    )
+    if age is None:
+        context["status"] = "stale"
+        context["error"] = "risk_prediction_timestamp_unparseable"
+        return context
+    if age > max_age_seconds:
+        context["status"] = "stale"
+        context["error"] = f"risk_prediction_stale:{age:.3f}s>{max_age_seconds:.3f}s"
+        return context
+    if not valid_for_policy:
+        context["status"] = inference_status
+        context["error"] = f"risk_prediction_not_valid_for_policy:{inference_status}"
+        return context
+    context["fresh"] = True
+    context["status"] = "fresh"
+    return context
+
+
+def risk_service_levels(prediction: Dict[str, Any]) -> Dict[str, str]:
+    service_risks = prediction.get("service_risks")
+    levels: Dict[str, str] = {}
+    for service_class in SLICE_NAME_BY_SERVICE_CLASS:
+        level = None
+        if isinstance(service_risks, dict):
+            record = service_risks.get(service_class)
+            if isinstance(record, dict):
+                level = record.get("risk_level")
+            else:
+                level = record
+        if level is None:
+            level = prediction.get(RISK_FIELD_BY_SERVICE_CLASS.get(service_class, ""))
+        levels[service_class] = normalize_risk_level(level)
+    return levels
+
+
+def get_manufacturing_phase(machine_twin: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(machine_twin, dict):
+        return "unknown"
+    phase = machine_twin.get("manufacturing_phase")
+    return str(phase) if phase else "unknown"
+
+
+def get_machine_service_criticality(machine_twin: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    if not isinstance(machine_twin, dict):
+        return {}
+    criticality = machine_twin.get("service_criticality")
+    if not isinstance(criticality, dict):
+        return {}
+    return {str(key): str(value) for key, value in criticality.items()}
+
+
+def get_service_criticality(machine_twin: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    return get_machine_service_criticality(machine_twin)
+
+
+def service_classes_for_manufacturing_phase(phase: str) -> set[str]:
+    return set(MANUFACTURING_PHASE_SERVICE_CLASSES.get(str(phase), set()))
+
+
+def build_manufacturing_policy_context(
+    machine_twin: Optional[Dict[str, Any]],
+    *,
+    enabled: bool = True,
+    latest_path: Path | str = "",
+    max_age_seconds: float = DEFAULT_MANUFACTURING_TWIN_MAX_AGE_SECONDS,
+) -> Dict[str, Any]:
+    context: Dict[str, Any] = {
+        "enabled": enabled,
+        "status": "disabled" if not enabled else "missing_or_stale",
+        "fresh": False,
+        "latest_path": str(latest_path),
+        "state": machine_twin if isinstance(machine_twin, dict) else None,
+        "phase": "disabled" if not enabled else "unknown",
+        "availability": None,
+        "printer_state_text": None,
+        "job_state": None,
+        "job_progress_percent": None,
+        "service_criticality": {},
+        "state_age_seconds": None,
+        "error": None,
+        "protected_service_classes": [],
+    }
+    if not enabled:
+        return context
+    if not isinstance(machine_twin, dict):
+        context["error"] = "latest_machine_twin_state_unavailable"
+        return context
+
+    age = timestamp_age_seconds(machine_twin.get("timestamp"))
+    phase = get_manufacturing_phase(machine_twin)
+    context.update(
+        {
+            "phase": phase,
+            "availability": machine_twin.get("availability"),
+            "printer_state_text": machine_twin.get("printer_state_text"),
+            "job_state": machine_twin.get("job_state"),
+            "job_progress_percent": machine_twin.get("job_progress_percent"),
+            "service_criticality": get_machine_service_criticality(machine_twin),
+            "state_age_seconds": age,
+            "protected_service_classes": sorted(service_classes_for_manufacturing_phase(phase)),
+        }
+    )
+    if age is None:
+        context["error"] = "machine_twin_timestamp_unparseable"
+        return context
+    if age > max_age_seconds:
+        context["error"] = f"machine_twin_stale:{age:.3f}s>{max_age_seconds:.3f}s"
+        return context
+    context["fresh"] = True
+    context["status"] = "fresh"
+    return context
+
+
 def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str, Any]:
     base_dir = config_path.parent
     config = dict(raw_config)
     env_metrics_http_host = os.getenv("POLICY_MANAGER_METRICS_HOST", "").strip()
     env_metrics_http_port = os.getenv("POLICY_MANAGER_METRICS_PORT", "").strip()
+    env_manufacturing_twin_enabled = os.getenv("MANUFACTURING_TWIN_ENABLED", "").strip()
+    env_manufacturing_twin_latest_path = os.getenv("MANUFACTURING_TWIN_LATEST_PATH", "").strip()
+    env_manufacturing_twin_max_age_seconds = os.getenv("MANUFACTURING_TWIN_MAX_AGE_SECONDS", "").strip()
+    env_risk_inference_enabled = os.getenv("DT_RISK_INFERENCE_ENABLED", "").strip()
+    env_risk_prediction_path = os.getenv("DT_RISK_PREDICTION_PATH", "").strip()
+    env_risk_max_age_seconds = os.getenv("DT_RISK_MAX_AGE_SECONDS", "").strip()
+    env_risk_high_action = os.getenv("DT_RISK_HIGH_ACTION", "").strip()
+    env_risk_medium_action = os.getenv("DT_RISK_MEDIUM_ACTION", "").strip()
+    env_risk_low_action = os.getenv("DT_RISK_LOW_ACTION", "").strip()
 
     config.setdefault("polling_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
     config.setdefault("telemetry_dir", DEFAULT_TELEMETRY_DIR)
@@ -185,6 +514,15 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     )
     config.setdefault("default_policy_action", DEFAULT_ACTION_MAINTAIN)
     config.setdefault("restore_policy_action", DEFAULT_ACTION_RESTORE)
+    config.setdefault("manufacturing_twin_enabled", False)
+    config.setdefault("manufacturing_twin_latest_path", DEFAULT_MANUFACTURING_TWIN_LATEST_PATH)
+    config.setdefault("manufacturing_twin_max_age_seconds", DEFAULT_MANUFACTURING_TWIN_MAX_AGE_SECONDS)
+    config.setdefault("risk_inference_enabled", False)
+    config.setdefault("risk_prediction_path", DEFAULT_RISK_PREDICTION_PATH)
+    config.setdefault("risk_max_age_seconds", DEFAULT_RISK_MAX_AGE_SECONDS)
+    config.setdefault("risk_high_action", DEFAULT_RISK_HIGH_ACTION)
+    config.setdefault("risk_medium_action", DEFAULT_RISK_MEDIUM_ACTION)
+    config.setdefault("risk_low_action", DEFAULT_RISK_LOW_ACTION)
     config.setdefault(
         "service_classes",
         {
@@ -233,6 +571,24 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
         config["metrics_http_host"] = env_metrics_http_host
     if env_metrics_http_port:
         config["metrics_http_port"] = env_metrics_http_port
+    if env_manufacturing_twin_enabled:
+        config["manufacturing_twin_enabled"] = env_manufacturing_twin_enabled
+    if env_manufacturing_twin_latest_path:
+        config["manufacturing_twin_latest_path"] = env_manufacturing_twin_latest_path
+    if env_manufacturing_twin_max_age_seconds:
+        config["manufacturing_twin_max_age_seconds"] = env_manufacturing_twin_max_age_seconds
+    if env_risk_inference_enabled:
+        config["risk_inference_enabled"] = env_risk_inference_enabled
+    if env_risk_prediction_path:
+        config["risk_prediction_path"] = env_risk_prediction_path
+    if env_risk_max_age_seconds:
+        config["risk_max_age_seconds"] = env_risk_max_age_seconds
+    if env_risk_high_action:
+        config["risk_high_action"] = env_risk_high_action
+    if env_risk_medium_action:
+        config["risk_medium_action"] = env_risk_medium_action
+    if env_risk_low_action:
+        config["risk_low_action"] = env_risk_low_action
 
     config["polling_interval_seconds"] = float(config["polling_interval_seconds"])
     config["metrics_http_host"] = str(config["metrics_http_host"])
@@ -247,6 +603,29 @@ def normalize_config(config_path: Path, raw_config: Dict[str, Any]) -> Dict[str,
     )
     config["telemetry_dir"] = normalize_path(base_dir, str(config["telemetry_dir"]))
     config["log_dir"] = normalize_path(base_dir, str(config["log_dir"]))
+    config["manufacturing_twin_enabled"] = coerce_bool(
+        config["manufacturing_twin_enabled"],
+        field_name="manufacturing_twin_enabled",
+    )
+    config["manufacturing_twin_latest_path"] = normalize_manufacturing_twin_path(
+        base_dir,
+        str(config["manufacturing_twin_latest_path"]),
+    )
+    config["manufacturing_twin_max_age_seconds"] = float(
+        config["manufacturing_twin_max_age_seconds"]
+    )
+    config["risk_inference_enabled"] = coerce_bool(
+        config["risk_inference_enabled"],
+        field_name="risk_inference_enabled",
+    )
+    config["risk_prediction_path"] = normalize_repo_artifact_path(
+        base_dir,
+        str(config["risk_prediction_path"]),
+    )
+    config["risk_max_age_seconds"] = float(config["risk_max_age_seconds"])
+    config["risk_high_action"] = str(config["risk_high_action"])
+    config["risk_medium_action"] = str(config["risk_medium_action"])
+    config["risk_low_action"] = str(config["risk_low_action"])
 
     normalized_services: Dict[str, Dict[str, Any]] = {}
     for service_class, service_cfg in config.get("service_classes", {}).items():
@@ -320,6 +699,17 @@ class PolicyManager:
         self.unchanged_log_interval_seconds = float(
             config["unchanged_decision_log_interval_seconds"]
         )
+        self.manufacturing_twin_enabled = bool(config["manufacturing_twin_enabled"])
+        self.manufacturing_twin_latest_path = Path(str(config["manufacturing_twin_latest_path"]))
+        self.manufacturing_twin_max_age_seconds = float(
+            config["manufacturing_twin_max_age_seconds"]
+        )
+        self.risk_inference_enabled = bool(config["risk_inference_enabled"])
+        self.risk_prediction_path = Path(str(config["risk_prediction_path"]))
+        self.risk_max_age_seconds = float(config["risk_max_age_seconds"])
+        self.risk_high_action = str(config["risk_high_action"])
+        self.risk_medium_action = str(config["risk_medium_action"])
+        self.risk_low_action = str(config["risk_low_action"])
         self.default_action = str(config["default_policy_action"])
         self.restore_action = str(config["restore_policy_action"])
         self.service_configs = dict(config["service_classes"])
@@ -330,6 +720,36 @@ class PolicyManager:
         self.previous_snapshot: Optional[Dict[str, Any]] = None
         self.previous_snapshot_time: Optional[dt.datetime] = None
         self.last_processed_telemetry_reference: Optional[Dict[str, Any]] = None
+        self.current_manufacturing_context: Dict[str, Any] = {
+            "enabled": self.manufacturing_twin_enabled,
+            "status": "disabled" if not self.manufacturing_twin_enabled else "missing_or_stale",
+            "fresh": False,
+            "phase": "disabled" if not self.manufacturing_twin_enabled else "unknown",
+            "availability": None,
+            "printer_state_text": None,
+            "job_state": None,
+            "job_progress_percent": None,
+            "service_criticality": {},
+            "state_age_seconds": None,
+        }
+        self.current_risk_context: Dict[str, Any] = {
+            "enabled": self.risk_inference_enabled,
+            "status": "disabled" if not self.risk_inference_enabled else "missing",
+            "fresh": False,
+            "valid_for_policy": False,
+            "overall_risk_level": "disabled" if not self.risk_inference_enabled else "unknown",
+            "overall_risk_score": None,
+            "real_time_control_risk": "unknown",
+            "high_throughput_data_risk": "unknown",
+            "sensor_telemetry_risk": "unknown",
+            "recommended_policy_action": None,
+            "selected_policy_action": None,
+            "inference_status": "disabled" if not self.risk_inference_enabled else "missing",
+            "data_quality_status": [],
+            "queue_rule_presence": None,
+            "policy_drift_detected": None,
+            "state_age_seconds": None,
+        }
         stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_id = f"policy-manager-{stamp}-{os.getpid()}"
         self.log_path = self.log_dir / f"policy_decisions_{stamp}.jsonl"
@@ -479,6 +899,16 @@ class PolicyManager:
         print_console("INFO", f"Watching telemetry directory: {self.telemetry_dir}")
         print_console(
             "INFO",
+            f"Manufacturing twin enabled={str(self.manufacturing_twin_enabled).lower()} "
+            f"latest_path={self.manufacturing_twin_latest_path}",
+        )
+        print_console(
+            "INFO",
+            f"Risk inference enabled={str(self.risk_inference_enabled).lower()} "
+            f"prediction_path={self.risk_prediction_path}",
+        )
+        print_console(
+            "INFO",
             "Policy decisions are emitted for enforcement_manager.py; OVS/ONOS updates happen in the enforcement layer.",
         )
         print_console("INFO", f"Writing policy decisions to: {self.log_path}")
@@ -494,6 +924,10 @@ class PolicyManager:
                 "mode": "dry-run" if self.dry_run_only else "active",
                 "no_live_enforcement": self.dry_run_only,
                 "external_enforcement_only": True,
+                "manufacturing_twin_enabled": self.manufacturing_twin_enabled,
+                "manufacturing_twin_latest_path": str(self.manufacturing_twin_latest_path),
+                "risk_inference_enabled": self.risk_inference_enabled,
+                "risk_prediction_path": str(self.risk_prediction_path),
             }
         )
 
@@ -642,6 +1076,8 @@ class PolicyManager:
                 delta_seconds = elapsed
 
         context = self.build_context(snapshot, delta_seconds)
+        self.current_manufacturing_context = dict(context.get("manufacturing_twin", {}))
+        self.current_risk_context = dict(context.get("risk_inference", {}))
 
         decision_count = 0
         for service_class, service_cfg in self.service_configs.items():
@@ -661,6 +1097,7 @@ class PolicyManager:
             if decision is not None:
                 decision_count += 1
                 self.write_jsonl(decision)
+                print_console("INFO", str(decision.get("decision_log_summary")))
                 if (
                     decision.get("is_new_decision")
                     and hasattr(self, "prometheus_policy_action_applied_total")
@@ -697,7 +1134,61 @@ class PolicyManager:
             "queue_rates": self.compute_queue_rates(snapshot, delta_seconds),
             "interface_rates": self.compute_interface_rates(snapshot, delta_seconds),
             "flow_rates": self.compute_flow_rates(snapshot, delta_seconds),
+            "manufacturing_twin": self.build_manufacturing_twin_context(),
+            "risk_inference": self.build_risk_inference_context(),
         }
+        return context
+
+    def build_risk_inference_context(self) -> Dict[str, Any]:
+        if not self.risk_inference_enabled:
+            return build_risk_inference_policy_context(
+                None,
+                enabled=False,
+                latest_path=self.risk_prediction_path,
+                max_age_seconds=self.risk_max_age_seconds,
+                high_action=self.risk_high_action,
+                medium_action=self.risk_medium_action,
+                low_action=self.risk_low_action,
+            )
+
+        prediction = read_risk_prediction(self.risk_prediction_path)
+        context = build_risk_inference_policy_context(
+            prediction,
+            enabled=True,
+            latest_path=self.risk_prediction_path,
+            max_age_seconds=self.risk_max_age_seconds,
+            high_action=self.risk_high_action,
+            medium_action=self.risk_medium_action,
+            low_action=self.risk_low_action,
+        )
+        if context.get("status") in {"missing", "stale"}:
+            self.warn_once(
+                f"risk-inference-{context.get('status')}",
+                f"risk_inference_status={context.get('status')} latest_path={self.risk_prediction_path}",
+            )
+        return context
+
+    def build_manufacturing_twin_context(self) -> Dict[str, Any]:
+        if not self.manufacturing_twin_enabled:
+            return build_manufacturing_policy_context(
+                None,
+                enabled=False,
+                latest_path=self.manufacturing_twin_latest_path,
+                max_age_seconds=self.manufacturing_twin_max_age_seconds,
+            )
+
+        machine_twin = read_manufacturing_twin_state(self.manufacturing_twin_latest_path)
+        context = build_manufacturing_policy_context(
+            machine_twin,
+            enabled=True,
+            latest_path=self.manufacturing_twin_latest_path,
+            max_age_seconds=self.manufacturing_twin_max_age_seconds,
+        )
+        if context.get("status") == "missing_or_stale":
+            self.warn_once(
+                "manufacturing-twin-missing-or-stale",
+                f"manufacturing_twin_status=missing_or_stale latest_path={self.manufacturing_twin_latest_path}",
+            )
         return context
 
     def compute_queue_rates(
@@ -895,6 +1386,20 @@ class PolicyManager:
         snapshot: Dict[str, Any],
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
+        risk_evaluation = self.evaluate_risk_inference_context(
+            service_class,
+            service_cfg,
+            context,
+        )
+        if risk_evaluation is not None:
+            return risk_evaluation
+        manufacturing_evaluation = self.evaluate_manufacturing_twin_context(
+            service_class,
+            service_cfg,
+            context,
+        )
+        if manufacturing_evaluation is not None:
+            return manufacturing_evaluation
         if service_class == "real_time_control":
             return self.evaluate_real_time_control(service_cfg, snapshot, context)
         if service_class == "high_throughput_data":
@@ -906,6 +1411,118 @@ class PolicyManager:
             "condition": f"{service_class}_unsupported",
             "evaluated_metrics": {},
             "explanation": f"No evaluator is defined for service class '{service_class}'.",
+        }
+
+    def evaluate_risk_inference_context(
+        self,
+        service_class: str,
+        service_cfg: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        risk_context = context.get("risk_inference", {})
+        if not isinstance(risk_context, dict):
+            return None
+        if (
+            not risk_context.get("enabled")
+            or not risk_context.get("fresh")
+            or risk_context.get("valid_for_policy") is not True
+        ):
+            return None
+
+        overall_level = normalize_risk_level(risk_context.get("overall_risk_level"))
+        service_risks = risk_context.get("service_risk_levels", {})
+        service_level = (
+            normalize_risk_level(service_risks.get(service_class))
+            if isinstance(service_risks, dict)
+            else "unknown"
+        )
+        selected_policy_action = str(
+            risk_context.get("selected_policy_action") or self.risk_low_action
+        )
+        if overall_level == "low" and not risk_is_at_least(service_level, "medium"):
+            return None
+        if overall_level == "unknown" and not risk_is_at_least(service_level, "medium"):
+            return None
+
+        action_phrase = (
+            "verify or reinstall"
+            if selected_policy_action == self.risk_high_action
+            else "verify"
+        )
+        metrics = strip_none_values(
+            {
+                "risk_inference_status": risk_context.get("status"),
+                "valid_for_policy": risk_context.get("valid_for_policy"),
+                "overall_risk_score": risk_context.get("overall_risk_score"),
+                "overall_risk_level": overall_level,
+                "service_risk_level": service_level,
+                "real_time_control_risk": risk_context.get("real_time_control_risk"),
+                "high_throughput_data_risk": risk_context.get("high_throughput_data_risk"),
+                "sensor_telemetry_risk": risk_context.get("sensor_telemetry_risk"),
+                "recommended_policy_action": risk_context.get("recommended_policy_action"),
+                "selected_policy_action": selected_policy_action,
+                "data_quality_status": risk_context.get("data_quality_status"),
+                "queue_rule_presence": risk_context.get("queue_rule_presence"),
+                "policy_drift_detected": risk_context.get("policy_drift_detected"),
+                "state_age_seconds": risk_context.get("state_age_seconds"),
+                "latest_path": risk_context.get("latest_path"),
+            }
+        )
+        return {
+            "target_state": selected_policy_action,
+            "condition": f"risk_inference_{overall_level}_{service_class}_queue_protection",
+            "evaluated_metrics": metrics,
+            "explanation": (
+                "Predictive SLA Risk Inference Engine reported "
+                f"overall_risk_level={overall_level} and {service_class}_risk={service_level}; "
+                f"the deterministic policy manager should {action_phrase} queue rules through ONOS_QUEUE_APP."
+            ),
+        }
+
+    def evaluate_manufacturing_twin_context(
+        self,
+        service_class: str,
+        service_cfg: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        machine_context = context.get("manufacturing_twin", {})
+        if not isinstance(machine_context, dict):
+            return None
+        if not machine_context.get("enabled") or not machine_context.get("fresh"):
+            return None
+
+        phase = str(machine_context.get("phase") or "unknown")
+        protected_service_classes = service_classes_for_manufacturing_phase(phase)
+        if service_class not in protected_service_classes:
+            return None
+
+        service_criticality = machine_context.get("service_criticality", {})
+        criticality = (
+            service_criticality.get(service_class)
+            if isinstance(service_criticality, dict)
+            else None
+        )
+        metrics = strip_none_values(
+            {
+                "manufacturing_phase": phase,
+                "machine_availability": machine_context.get("availability"),
+                "printer_state_text": machine_context.get("printer_state_text"),
+                "job_state": machine_context.get("job_state"),
+                "job_progress_percent": machine_context.get("job_progress_percent"),
+                "service_criticality": criticality,
+                "machine_service_criticality": service_criticality,
+                "state_age_seconds": machine_context.get("state_age_seconds"),
+                "latest_path": machine_context.get("latest_path"),
+            }
+        )
+        return {
+            "target_state": service_cfg["trigger_action_name"],
+            "condition": f"manufacturing_twin_{phase}_{service_class}_protection",
+            "evaluated_metrics": metrics,
+            "explanation": (
+                f"Manufacturing twin phase {phase} requires verifying the "
+                f"{service_class} queue because its machine criticality is {criticality or 'unspecified'}."
+            ),
         }
 
     def evaluate_real_time_control(
@@ -1529,6 +2146,78 @@ class PolicyManager:
         candidate_action: Optional[str],
         cooldown_status: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
+        machine_context = self.current_manufacturing_context or {}
+        risk_context = self.current_risk_context or {}
+        manufacturing_twin_enabled = bool(machine_context.get("enabled"))
+        manufacturing_twin_status = str(machine_context.get("status") or "disabled")
+        manufacturing_phase = str(machine_context.get("phase") or "disabled")
+        machine_availability = machine_context.get("availability")
+        printer_state_text = machine_context.get("printer_state_text")
+        job_state = machine_context.get("job_state")
+        job_progress_percent = machine_context.get("job_progress_percent")
+        machine_service_criticality = machine_context.get("service_criticality", {})
+        machine_state = printer_state_text or machine_availability
+        risk_inference_enabled = bool(risk_context.get("enabled"))
+        risk_inference_status = str(risk_context.get("status") or "disabled")
+        valid_for_policy = bool(risk_context.get("valid_for_policy"))
+        overall_risk_score = risk_context.get("overall_risk_score")
+        overall_risk_level = str(risk_context.get("overall_risk_level") or "disabled")
+        real_time_control_risk = risk_context.get("real_time_control_risk")
+        high_throughput_data_risk = risk_context.get("high_throughput_data_risk")
+        sensor_telemetry_risk = risk_context.get("sensor_telemetry_risk")
+        risk_recommended_policy_action = risk_context.get("recommended_policy_action")
+        selected_policy_action = (
+            risk_context.get("selected_policy_action")
+            if risk_inference_enabled and valid_for_policy
+            else recommended_action
+        )
+        decision_reason = explanation
+        if manufacturing_twin_enabled:
+            phase_reason = (
+                f" Manufacturing twin context: phase={manufacturing_phase}, "
+                f"machine_state={machine_state or 'unknown'}."
+            )
+            if f"phase={manufacturing_phase}" not in decision_reason:
+                decision_reason += phase_reason
+        if risk_inference_enabled:
+            risk_reason = (
+                " Predictive SLA Risk Inference Engine context: "
+                f"risk_inference_status={risk_inference_status}, "
+                f"valid_for_policy={str(valid_for_policy).lower()}, "
+                f"overall_risk_score={overall_risk_score}, "
+                f"overall_risk_level={overall_risk_level}, "
+                f"selected_policy_action={selected_policy_action or 'none'}."
+            )
+            if f"risk_inference_status={risk_inference_status}" not in decision_reason:
+                decision_reason += risk_reason
+        applied = bool(is_new_decision and not self.dry_run_only)
+        enforcement_path = (
+            "ONOS_QUEUE_APP"
+            if applied or risk_inference_enabled
+            else None
+        )
+        enforcement_status = "pending_ONOS_QUEUE_APP" if applied else "not_applied"
+        log_summary = (
+            f"service_class={service_class} "
+            f"risk_inference_enabled={str(risk_inference_enabled).lower()} "
+            f"risk_inference_status={risk_inference_status} "
+            f"valid_for_policy={str(valid_for_policy).lower()} "
+            f"overall_risk_score={overall_risk_score} "
+            f"overall_risk_level={overall_risk_level} "
+            f"real_time_control_risk={real_time_control_risk} "
+            f"high_throughput_data_risk={high_throughput_data_risk} "
+            f"sensor_telemetry_risk={sensor_telemetry_risk} "
+            f"recommended_policy_action={risk_recommended_policy_action or 'none'} "
+            f"selected_policy_action={selected_policy_action or 'none'} "
+            f"manufacturing_twin_status={manufacturing_twin_status} "
+            f"phase={manufacturing_phase} "
+            f"machine_state={machine_state or 'unknown'} "
+            f"service_criticality={machine_service_criticality} "
+            f"enforcement_status={enforcement_status} "
+            f"applied={str(applied).lower()}"
+        )
+        if enforcement_path:
+            log_summary += f" enforcement_path={enforcement_path}"
         record = {
             "event_type": "policy_decision",
             "timestamp": utc_timestamp(),
@@ -1544,11 +2233,47 @@ class PolicyManager:
             "decision_state": decision_state,
             "is_new_decision": is_new_decision,
             "explanation": explanation,
+            "decision_reason": decision_reason,
             "dry_run_only": self.dry_run_only,
             "mode": "dry-run" if self.dry_run_only else "active",
             "no_live_enforcement": self.dry_run_only,
             "external_enforcement_only": True,
             "cooldown_status": cooldown_status,
+            "risk_inference_enabled": risk_inference_enabled,
+            "risk_inference_status": risk_inference_status,
+            "valid_for_policy": valid_for_policy,
+            "overall_risk_score": overall_risk_score,
+            "overall_risk_level": overall_risk_level,
+            "real_time_control_risk": real_time_control_risk,
+            "high_throughput_data_risk": high_throughput_data_risk,
+            "sensor_telemetry_risk": sensor_telemetry_risk,
+            "recommended_policy_action": risk_recommended_policy_action,
+            "selected_policy_action": selected_policy_action,
+            "risk_inference_data_quality_status": risk_context.get("data_quality_status"),
+            "queue_rule_presence": risk_context.get("queue_rule_presence"),
+            "policy_drift_detected": risk_context.get("policy_drift_detected"),
+            "risk_prediction_fresh": bool(risk_context.get("fresh")),
+            "risk_prediction_state_age_seconds": risk_context.get("state_age_seconds"),
+            "risk_prediction_path": risk_context.get("latest_path"),
+            "risk_inference_error": risk_context.get("error"),
+            "manufacturing_twin_enabled": manufacturing_twin_enabled,
+            "manufacturing_twin_status": manufacturing_twin_status,
+            "manufacturing_phase": manufacturing_phase,
+            "machine_availability": machine_availability,
+            "printer_state_text": printer_state_text,
+            "job_state": job_state,
+            "job_progress_percent": job_progress_percent,
+            "service_criticality": machine_service_criticality,
+            "machine_service_criticality": machine_service_criticality,
+            "machine_state": machine_state,
+            "machine_twin_fresh": bool(machine_context.get("fresh")),
+            "machine_twin_state_age_seconds": machine_context.get("state_age_seconds"),
+            "machine_twin_latest_path": machine_context.get("latest_path"),
+            "machine_twin_error": machine_context.get("error"),
+            "applied": applied,
+            "enforcement_path": enforcement_path,
+            "enforcement_status": enforcement_status,
+            "decision_log_summary": log_summary,
         }
         service_state = self.service_state[service_class]
         service_state["last_emitted_action"] = recommended_action

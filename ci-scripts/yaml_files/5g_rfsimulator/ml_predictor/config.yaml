@@ -1,0 +1,8 @@
+twin_state_path: ../logs/digital_twin/twin_state.jsonl
+dataset_output_path: ../logs/ml_predictor/dataset.csv
+model_output_path: models/baseline_model.json
+prediction_output_path: ../logs/ml_predictor/predictions.jsonl
+prediction_interval_seconds: 2
+urllc_latency_threshold_ms: 20
+embb_throughput_threshold_bps: 85000000
+

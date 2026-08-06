@@ -50,8 +50,8 @@
     "dry_run": false,
     "bootstrap_from_existing_policy_logs": true,
     "ensure_onos_slice_flows": true,
-    "force_onos_flow_refresh": false,
-    "read_current_ovs_profile_on_startup": true,
+    "force_onos_flow_refresh": true,
+    "read_current_ovs_profile_on_startup": false,
     "action_to_queue_profile": {
       "MAINTAIN_CURRENT_POLICY": "baseline",
       "INCREASE_CONTROL_PRIORITY": "queue_2_protected",

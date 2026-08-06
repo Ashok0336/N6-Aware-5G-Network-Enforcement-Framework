@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-07-07T00:00:00.000Z",
+  "octoprint_url": "http://10.88.188.190:5000",
+  "octoprint_reachable": false,
+  "printer_operational": false,
+  "availability": "octoprint_unreachable",
+  "printer_state_text": null,
+  "job_state": null,
+  "api_error": "timeout reading /api/version",
+  "version": null,
+  "printer": {},
+  "job": {}
+}

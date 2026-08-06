@@ -9,6 +9,20 @@ policy_manager:
   telemetry_dir: ../logs/telemetry
   log_dir: ../logs/policy
   log_prefix: closed_loop_policy
+  manufacturing_twin_enabled: false
+  manufacturing_twin_latest_path: ../logs/manufacturing_twin/latest_machine_twin_state.json
+  manufacturing_twin_max_age_seconds: 10
+  risk_inference_enabled: false
+  risk_prediction_path: ../logs/risk_inference/latest_risk_prediction.json
+  risk_max_age_seconds: 10
+  risk_low_action: MAINTAIN_CURRENT_POLICY
+  risk_medium_action: APPLY_REAL_TIME_CONTROL_PROTECTION
+  risk_high_action: APPLY_REAL_TIME_CONTROL_PROTECTION
+  risk_real_time_control_action: APPLY_REAL_TIME_CONTROL_PROTECTION
+  risk_high_throughput_data_action: RESTORE_DATA_THROUGHPUT_SHARE
+  risk_sensor_telemetry_action: PROTECT_SENSOR_TELEMETRY
+  risk_balanced_action: BALANCED_SERVICE_ASSURANCE
+  risk_action_cooldown_seconds: 10
   ensure_onos_slice_flows: true
   force_onos_flow_refresh: false
   onos:
@@ -28,25 +42,86 @@ policy_manager:
       parent_max_rate_bps: 120000000
       queues:
         "1":
-          min_rate_bps: 50000000
-          max_rate_bps: 100000000
+          min_rate_bps: 45000000
+          max_rate_bps: 65000000
+          priority: 2
         "2":
-          min_rate_bps: 10000000
-          max_rate_bps: 20000000
+          min_rate_bps: 50000000
+          max_rate_bps: 80000000
+          priority: 0
         "3":
-          min_rate_bps: 1000000
-          max_rate_bps: 5000000
+          min_rate_bps: 5000000
+          max_rate_bps: 10000000
+          priority: 1
     overlays:
       INCREASE_URLLC_PROTECTION:
         queues:
           "2":
-            min_rate_bps: 20000000
-            max_rate_bps: 40000000
+            min_rate_bps: 60000000
+            max_rate_bps: 85000000
+            priority: 0
+      APPLY_REAL_TIME_CONTROL_PROTECTION:
+        queues:
+          "1":
+            min_rate_bps: 40000000
+            max_rate_bps: 55000000
+            priority: 2
+          "2":
+            min_rate_bps: 65000000
+            max_rate_bps: 90000000
+            priority: 0
+          "3":
+            min_rate_bps: 5000000
+            max_rate_bps: 10000000
+            priority: 1
+      RESTORE_DATA_THROUGHPUT_SHARE:
+        queues:
+          "1":
+            min_rate_bps: 55000000
+            max_rate_bps: 80000000
+            priority: 1
+          "2":
+            min_rate_bps: 50000000
+            max_rate_bps: 80000000
+            priority: 0
+          "3":
+            min_rate_bps: 5000000
+            max_rate_bps: 10000000
+            priority: 2
+      PROTECT_SENSOR_TELEMETRY:
+        queues:
+          "1":
+            min_rate_bps: 45000000
+            max_rate_bps: 65000000
+            priority: 2
+          "2":
+            min_rate_bps: 50000000
+            max_rate_bps: 80000000
+            priority: 0
+          "3":
+            min_rate_bps: 8000000
+            max_rate_bps: 15000000
+            priority: 1
+      BALANCED_SERVICE_ASSURANCE:
+        queues:
+          "1":
+            min_rate_bps: 50000000
+            max_rate_bps: 75000000
+            priority: 1
+          "2":
+            min_rate_bps: 55000000
+            max_rate_bps: 85000000
+            priority: 0
+          "3":
+            min_rate_bps: 7000000
+            max_rate_bps: 12000000
+            priority: 2
       INCREASE_EMBB_BANDWIDTH_SHARE:
         queues:
           "1":
-            min_rate_bps: 70000000
-            max_rate_bps: 110000000
+            min_rate_bps: 55000000
+            max_rate_bps: 80000000
+            priority: 1
       INCREASE_MMTC_RESERVED_RATE:
         queues:
           "3":
@@ -78,4 +153,3 @@ policy_manager:
       sla:
         min_delivery_ratio_percent: 98
         max_loss_percent: 2
-
