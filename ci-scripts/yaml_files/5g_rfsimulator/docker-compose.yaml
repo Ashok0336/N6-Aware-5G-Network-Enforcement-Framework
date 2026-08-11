@@ -505,8 +505,13 @@ services:
 
 networks:
     public_net:
-        external: true
+        driver: bridge
         name: rfsim5g-oai-public-net
+        ipam:
+            config:
+                - subnet: 192.168.71.128/26
+        driver_opts:
+            com.docker.network.bridge.name: "rfsim5g-public"
 
 volumes:
     grafana-storage:
